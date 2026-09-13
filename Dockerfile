@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     --mount=type=cache,id=ccache,target=/root/.cache/ccache \
     uv sync ${PYTHON_VER_UV:-} ${VERBOSE:-} --frozen --no-install-project --no-dev
 
-RUN ${UV_PROJECT_ENVIRONMENT}/python -c "\
+RUN PYTHON_GIL=0 ${UV_PROJECT_ENVIRONMENT}/bin/python -c "\
 import sys; \
 import numpy; \
 import scipy; \
@@ -73,7 +73,7 @@ COPY pyproject.toml .
 COPY ./src src/
 COPY --chmod=+x ./entrypoint.sh .
 
-ENV PATH="/opt/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=./src
+ENV PATH="/opt/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=./src PYTHON_GIL=0
 
 #USER ${_USER}
 
