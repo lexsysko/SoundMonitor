@@ -48,26 +48,29 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SR = 16000                  # sample rate
+SR = 16000  # sample rate
 CHANNELS = 1
-CHUNK = 1024                # frames per buffer
+CHUNK = 1024  # frames per buffer
 
 # Spectral analysis
-NPERSEG = 4096              # ~256 ms
-FREQ_RANGE = (40.0, 1000.0) # Hz – region of interest
+NPERSEG = 4096  # ~256 ms
+FREQ_RANGE = (40.0, 1000.0)  # Hz – region of interest
 
 # Detection defaults (overridden by calibration when available)
-DEFAULT_THRESHOLD = 0.60    # used only if no calibration file exists
-SMOOTH_WINDOWS = 3          # majority vote over last N decisions
-MIN_RECORD_SEC = 3.0        # minimum useful recording length for a template
+DEFAULT_THRESHOLD = 0.60  # used only if no calibration file exists
+SMOOTH_WINDOWS = 3  # majority vote over last N decisions
+MIN_RECORD_SEC = 3.0  # minimum useful recording length for a template
 
 # Safety margin: how much we bias the decision boundary toward OFF
 # (reduces false positives). 0.0 = exact midpoint, 0.15–0.25 = safer.
 SAFETY_MARGIN = 0.18
 
-TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
-ON_FILE        = TEMPLATE_DIR / "compressor_on.npz"
-OFF_FILE       = TEMPLATE_DIR / "compressor_off.npz"
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+DATA_DIR = BASE_DIR / "data"
+
+TEMPLATE_DIR = DATA_DIR / "templates"
+ON_FILE = TEMPLATE_DIR / "compressor_on.npz"
+OFF_FILE = TEMPLATE_DIR / "compressor_off.npz"
 THRESHOLD_FILE = TEMPLATE_DIR / "threshold.json"
 
 
@@ -80,9 +83,11 @@ def list_input_devices() -> None:
     for i in range(pa.get_device_count()):
         info = pa.get_device_info_by_index(i)
         if info["maxInputChannels"] > 0:
-            print(f"  [{i}] {info['name']}  "
-                  f"(max in={info['maxInputChannels']}, "
-                  f"default rate={int(info['defaultSampleRate'])})")
+            print(
+                f"  [{i}] {info['name']}  "
+                f"(max in={info['maxInputChannels']}, "
+                f"default rate={int(info['defaultSampleRate'])})"
+            )
     pa.terminate()
 
 
@@ -167,8 +172,7 @@ def calibrate_from_templates(verbose: bool = True) -> dict:
     """
     if not ON_FILE.exists() or not OFF_FILE.exists():
         raise FileNotFoundError(
-            f"Need both {ON_FILE.name} and {OFF_FILE.name}. "
-            "Run 'train' first."
+            f"Need both {ON_FILE.name} and {OFF_FILE.name}. Run 'train' first."
         )
 
     on = np.load(ON_FILE)
@@ -194,7 +198,7 @@ def calibrate_from_templates(verbose: bool = True) -> dict:
     # where midpoint_ratio would be 1.0 for equal distance.
     #
     # Practical calibrated value:
-    base = 1.0                          # pure midpoint
+    base = 1.0  # pure midpoint
     threshold = base * (1.0 - SAFETY_MARGIN)
 
     # Clamp to a sensible range so extreme templates don't produce nonsense
@@ -232,9 +236,13 @@ def calibrate_from_templates(verbose: bool = True) -> dict:
         print(f"  Saved to                   : {THRESHOLD_FILE}")
         if d_on_off < 0.12:
             print("\n  ⚠  Templates are very close – detection will be unreliable.")
-            print("     Re-record with mic closer to the compressor or longer duration.")
+            print(
+                "     Re-record with mic closer to the compressor or longer duration."
+            )
         elif d_on_off < 0.20:
-            print("\n  ⚠  Moderate separation. Consider re-recording if you see false triggers.")
+            print(
+                "\n  ⚠  Moderate separation. Consider re-recording if you see false triggers."
+            )
         else:
             print("\n  ✓  Good separation between ON and OFF templates.")
         print("=" * 60)
@@ -251,7 +259,9 @@ def load_threshold(override: float | None = None) -> float:
             with open(THRESHOLD_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             t = float(data["threshold"])
-            print(f"  Using calibrated threshold: {t:.3f}  (from {THRESHOLD_FILE.name})")
+            print(
+                f"  Using calibrated threshold: {t:.3f}  (from {THRESHOLD_FILE.name})"
+            )
             return t
         except Exception as e:
             print(f"  Warning: could not read {THRESHOLD_FILE}: {e}")
@@ -346,7 +356,7 @@ def detect(
             _, psd = compute_psd(audio)
 
             n = min(len(psd), len(psd_on), len(psd_off))
-            d_on  = spectral_distance(psd[:n], psd_on[:n])
+            d_on = spectral_distance(psd[:n], psd_on[:n])
             d_off = spectral_distance(psd[:n], psd_off[:n])
 
             # Calibrated rule
@@ -386,22 +396,34 @@ def main() -> None:
 
     # train
     p_train = sub.add_parser("train", help="Record ON/OFF templates + auto-calibrate")
-    p_train.add_argument("-d", "--device", type=int, default=None,
-                         help="PyAudio input device index")
-    p_train.add_argument("-t", "--duration", type=float, default=8.0,
-                         help="Seconds to record for each template (default 8)")
+    p_train.add_argument(
+        "-d", "--device", type=int, default=None, help="PyAudio input device index"
+    )
+    p_train.add_argument(
+        "-t",
+        "--duration",
+        type=float,
+        default=8.0,
+        help="Seconds to record for each template (default 8)",
+    )
 
     # calibrate (re-run from existing templates)
     sub.add_parser("calibrate", help="Re-compute threshold from existing on/off .npz")
 
     # detect
     p_det = sub.add_parser("detect", help="Live detection using saved templates")
-    p_det.add_argument("-d", "--device", type=int, default=None,
-                       help="PyAudio input device index")
-    p_det.add_argument("--threshold", type=float, default=None,
-                       help="Override calibrated threshold (optional)")
-    p_det.add_argument("--window", type=float, default=1.5,
-                       help="Analysis window length in seconds")
+    p_det.add_argument(
+        "-d", "--device", type=int, default=None, help="PyAudio input device index"
+    )
+    p_det.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Override calibrated threshold (optional)",
+    )
+    p_det.add_argument(
+        "--window", type=float, default=1.5, help="Analysis window length in seconds"
+    )
 
     # list devices
     sub.add_parser("devices", help="List microphone devices")
