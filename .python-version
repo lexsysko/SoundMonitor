@@ -1,1 +1,2 @@
-3.14t
+# pyaudio for windows have whl build only for python 3.13 for now, can comment it
+3.13

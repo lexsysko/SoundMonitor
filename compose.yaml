@@ -1,7 +1,10 @@
 name: s-mon
 services:
   snd-monitor:
-    build: .
+    build:
+      context: .
+      args:
+        VERBOSE: --verbose
     env_file:
       - .env
 
