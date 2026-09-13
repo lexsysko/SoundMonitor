@@ -1,0 +1,39 @@
+name: s-mon
+services:
+  snd-monitor:
+    build: .
+    env_file:
+      - .env
+
+    network_mode: host
+    init: true
+    stop_grace_period: 15s
+    # Disable AppArmor confinement for raw D-Bus socket access
+    security_opt:
+      - apparmor:unconfined
+    #    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - snd_monitor_data:/app/data
+    restart: unless-stopped
+
+  grafana:
+    profiles:
+      - "grafana"
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_INSTALL_PLUGINS=frser-sqlite-datasource
+      - GF_SECURITY_ADMIN_PASSWORD=admin  # Change on first login
+    volumes:
+      # Mount the SAME data directory read-only into Grafana
+      - snd_monitor_data:/var/lib/grafana/sqlite_data:ro
+      - grafana-storage:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  snd_monitor_data:
+  grafana-storage:

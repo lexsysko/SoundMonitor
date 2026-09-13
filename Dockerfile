@@ -1,0 +1,55 @@
+ARG PYTHON_VER="3.14"
+
+# used .python-version as BASE version of .venv
+#ARG PYTHON_VER_UV="-p ${PYTHON_VER}t"
+
+######## BUILDER OF PYTHON APP
+FROM python:${PYTHON_VER}-slim AS builder
+
+ARG PYTHON_VER_UV
+ARG VERBOSE
+
+WORKDIR /opt
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY pyproject.toml uv.lock .python-version ./
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/.venv
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync ${PYTHON_VER_UV:-} ${VERBOSE:-} --frozen --no-install-project --no-dev
+
+
+FROM python:${PYTHON_VER}-slim AS runner
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bluez \
+    dbus \
+    libglib2.0-0 \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+
+#WORKDIR /app
+#ARG _USER=appuser
+#ARG _GROUP=appgroup
+#RUN groupadd ${_GROUP} && useradd --no-log-init -r --no-create-home -g ${_GROUP} ${_USER} && \
+#    mkdir ./data && \
+#    chown -R  ${_USER}:${_GROUP} ./data
+
+
+# Copy venv from previous stage "builder"
+COPY --from=builder /opt/.venv /opt/.venv
+COPY pyproject.toml .
+COPY ./src src/
+COPY --chmod=+x ./entrypoint.sh .
+
+ENV PATH="/opt/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=./src
+
+#USER ${_USER}
+
+CMD ["/app/entrypoint.sh"]
+
