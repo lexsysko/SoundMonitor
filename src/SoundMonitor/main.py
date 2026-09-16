@@ -15,22 +15,21 @@ Install (Debian/Ubuntu/Raspberry Pi):
     pip install numpy scipy
 
 Usage:
-    python compressor_detector.py train          # record + auto-calibrate
-    python compressor_detector.py calibrate      # re-calibrate from existing templates
-    python compressor_detector.py detect         # live detection (uses calibrated threshold)
-    python compressor_detector.py devices
+    python main.py train          # record + auto-calibrate
+    python main.py calibrate      # re-calibrate from existing templates
+    python main.py detect         # live detection (uses calibrated threshold)
+    python main.py devices
 """
-
-from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
-from scipy.signal import welch, butter, sosfilt
+from scipy.signal import butter, sosfilt, welch
 
 # ---------------------------------------------------------------------------
 # Optional PyAudio import with clear error
@@ -49,12 +48,13 @@ except ImportError:
 # Configuration
 # ---------------------------------------------------------------------------
 SR = 16000  # sample rate
+SAFE_SR = 44100  # safe sample rate
 CHANNELS = 1
 CHUNK = 1024  # frames per buffer
 
 # Spectral analysis
 NPERSEG = 4096  # ~256 ms
-FREQ_RANGE = (40.0, 1000.0)  # Hz – region of interest
+FREQ_RANGE = (60.0, 1000.0)  # Hz – region of interest
 
 # Detection defaults (overridden by calibration when available)
 DEFAULT_THRESHOLD = 0.60  # used only if no calibration file exists
@@ -91,34 +91,76 @@ def list_input_devices() -> None:
     pa.terminate()
 
 
-def record_seconds(seconds: float, device_index: int | None = None) -> np.ndarray:
-    """Record mono float32 audio from the microphone."""
-    pa = pyaudio.PyAudio()
-    kwargs = dict(
-        format=pyaudio.paInt16,
-        channels=CHANNELS,
-        rate=SR,
-        input=True,
-        frames_per_buffer=CHUNK,
-    )
-    if device_index is not None:
-        kwargs["input_device_index"] = device_index
+def open_stream_silent(pa, **kwargs):
+    stderr_fd = os.dup(2)
 
-    stream = pa.open(**kwargs)
+    try:
+        with open(os.devnull, "w") as devnull:
+            os.dup2(devnull.fileno(), 2)
+
+            return pa.open(**kwargs)
+    finally:
+        os.dup2(stderr_fd, 2)
+        os.close(stderr_fd)
+
+
+def record_seconds(
+    seconds: float, device_index: int | None = None
+) -> tuple[np.ndarray, int]:
+    pa = pyaudio.PyAudio()
+
+    if device_index is None:
+        device_index = int(pa.get_default_input_device_info()["index"])
+
+    pa_options = {
+        "format": pyaudio.paInt16,
+        "channels": CHANNELS,
+        "input": True,
+        "input_device_index": device_index,
+        "frames_per_buffer": CHUNK,
+    }
+
+    try:
+        rate = SR
+        pa_options["rate"] = rate
+        stream = pa.open(**pa_options)
+        # stream = open_stream_silent(pa, **pa_options)
+    except OSError as exc:
+        if exc.errno != -9997:
+            raise
+
+        rate = SAFE_SR
+        pa_options["rate"] = rate
+        # print(f"Sample rate {SR} Hz is not supported, using {rate} Hz")
+
+        stream = pa.open(**pa_options)
+        # stream = open_stream_silent(pa, **pa_options)
+
+    print("Recording...")
+
     frames = []
-    n_chunks = int(SR / CHUNK * seconds)
-    print(f"  Recording {seconds:.1f}s …", end="", flush=True)
+    n_chunks = int(rate / CHUNK * seconds)
+
     for _ in range(n_chunks):
-        data = stream.read(CHUNK, exception_on_overflow=False)
-        frames.append(np.frombuffer(data, dtype=np.int16))
+        try:
+            data = stream.read(CHUNK, exception_on_overflow=False)
+        except OSError:
+            break
+
+        samples = np.frombuffer(data, dtype=np.int16)
+
+        frames.append(samples)
+
     stream.stop_stream()
     stream.close()
     pa.terminate()
+
     print(" done")
 
     audio = np.concatenate(frames).astype(np.float32)
     audio /= 32768.0
-    return audio
+
+    return audio, rate
 
 
 def compute_psd(audio: np.ndarray, sr: int = SR) -> tuple[np.ndarray, np.ndarray]:
@@ -279,16 +321,16 @@ def train(device_index: int | None = None, duration: float = 8.0) -> None:
 
     def capture_label(label: str, path: Path) -> None:
         input(f"\n>>> Prepare '{label}' state, then press Enter to start recording…")
-        audio = record_seconds(duration, device_index)
+        audio, rate = record_seconds(duration, device_index)
         if len(audio) < SR * MIN_RECORD_SEC:
             print("Recording too short – try again.")
             return
-        freqs, psd = compute_psd(audio)
+        freqs, psd = compute_psd(audio, sr=rate)
         np.savez_compressed(
             path,
             freqs=freqs,
             psd=psd,
-            sr=SR,
+            sr=rate,
             duration=duration,
             label=label,
             created=time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -312,7 +354,7 @@ def train(device_index: int | None = None, duration: float = 8.0) -> None:
     if ON_FILE.exists() and OFF_FILE.exists():
         calibrate_from_templates(verbose=True)
     print("\nTraining + calibration finished.")
-    print("You can now run:  python compressor_detector.py detect")
+    print("You can now run:  python main.py detect")
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +363,7 @@ def train(device_index: int | None = None, duration: float = 8.0) -> None:
 def load_templates() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if not ON_FILE.exists() or not OFF_FILE.exists():
         print(f"Templates not found in {TEMPLATE_DIR}")
-        print("Run:  python compressor_detector.py train")
+        print("Run:  python main.py train")
         sys.exit(1)
     on = np.load(ON_FILE)
     off = np.load(OFF_FILE)
@@ -352,8 +394,8 @@ def detect(
 
     try:
         while True:
-            audio = record_seconds(window_sec, device_index)
-            _, psd = compute_psd(audio)
+            audio, rate = record_seconds(window_sec, device_index)
+            _, psd = compute_psd(audio, sr=rate)
 
             n = min(len(psd), len(psd_on), len(psd_off))
             d_on = spectral_distance(psd[:n], psd_on[:n])

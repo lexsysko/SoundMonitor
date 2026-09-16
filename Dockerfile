@@ -53,13 +53,17 @@ print('pyaudio:', pyaudio.__version__) \
 FROM python:${PYTHON_VER}-slim AS runner
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    libopenblas0 \
+    libportaudio2 \
     procps \
     htop \
     && rm -rf /var/lib/apt/lists/*
 
 
-#WORKDIR /app
+WORKDIR /app
+
 #ARG _USER=appuser
 #ARG _GROUP=appgroup
 #RUN groupadd ${_GROUP} && useradd --no-log-init -r --no-create-home -g ${_GROUP} ${_USER} && \
@@ -68,9 +72,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 
 # Copy venv from previous stage "builder"
+COPY --from=builder /root/.local/share/uv/python /root/.local/share/uv/python
 COPY --from=builder /opt/.venv /opt/.venv
 COPY pyproject.toml .
-COPY ./src src/
+COPY ./src ./src/
 COPY --chmod=+x ./entrypoint.sh .
 
 ENV PATH="/opt/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=./src PYTHON_GIL=0

@@ -6,7 +6,14 @@ services:
       args:
         VERBOSE: --verbose
     env_file:
-      - .env
+      - path: .env
+        required: false
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio
+
+    #    entrypoint: [ "tail", "-f", "/dev/null" ]
 
     network_mode: host
     init: true
