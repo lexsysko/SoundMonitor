@@ -16,6 +16,8 @@ RUN apt-get update \
         portaudio19-dev \
         pkg-config \
         libopenblas-dev \
+        zlib1g-dev \
+        libjpeg-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -71,6 +73,8 @@ RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     libopenblas0 \
     libportaudio2 \
+    libjpeg62-turbo \
+    zlib1g \
     procps \
     htop \
     && rm -rf /var/lib/apt/lists/*

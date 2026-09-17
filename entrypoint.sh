@@ -13,8 +13,12 @@ if [ "${WAITER:-}" = "1" ]; then
 fi
 
 if [ -n "${THRESHOLD:-}" ]; then
-  THRESHOLD="--threshold ${THRESHOLD}"
+  THRESHOLD=" --threshold ${THRESHOLD}"
 fi
 
-echo "RUNNING detect --loglevel=${LOGLEVEL:-WARNING}..."
-exec python /app/src/SoundMonitor/main.py --loglevel=${LOGLEVEL:-WARNING} detect ${THRESHOLD:-}
+if [ "${PLOT:-}" = "1" ]; then
+  PLOT=" --plot"
+fi
+
+echo "RUNNING detect --loglevel=${LOGLEVEL:-WARNING}${THRESHOLD:-}${PLOT:-}..."
+exec python /app/src/SoundMonitor/main.py --loglevel=${LOGLEVEL:-WARNING} detect${THRESHOLD:-}${PLOT:-}

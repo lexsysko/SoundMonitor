@@ -102,7 +102,7 @@ CHUNK = 1024
 
 # Target Welch window length in seconds (adapted to actual SR)
 WELCH_WINDOW_SEC = 0.256
-FREQ_RANGE = (60.0, 1000.0)
+FREQ_RANGE = (80.0, 500.0)
 
 DEFAULT_THRESHOLD = 0.60
 SMOOTH_WINDOWS = 30
@@ -521,6 +521,7 @@ async def detection_loop(
     result_queue: asyncio.Queue,
     window_sec: float = ANALYSIS_WINDOW_SEC,
     interval_sec: float = DETECT_INTERVAL_SEC,
+    plot: bool = False,
 ) -> None:
     history: deque[bool] = deque(maxlen=SMOOTH_WINDOWS)
     last_smoothed: bool | None = None
@@ -528,7 +529,7 @@ async def detection_loop(
     min_samples = int(mic.sr * 0.8)
     last_written_time: float = 0
 
-    logger.info(f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f} (Ctrl+C to stop)")
+    logger.info(f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f}, {plot=} (Ctrl+C to stop)")
     try:
         while True:
             audio = mic.get_recent(window_sec)
@@ -541,10 +542,10 @@ async def detection_loop(
             # fast, can stay in-loop
             d_on = spectral_distance(psd[:n], psd_on[:n])
             d_off = spectral_distance(psd[:n], psd_off[:n])
-            logger.debug(f"freq Hz: {[float(f'{x:10.6f}'[:10]) for x in freq[4:10]]}")
-            logger.debug(f"psd    : {psd[4:10]}")
-            logger.debug(f"psd_on : {psd_on[4:10]}")
-            logger.debug(f"psd_off: {psd_off[4:10]}")
+            logger.debug(f"freq Hz: {[float(f'{x:10.6f}'[:10]) for x in freq[2:8]]}")
+            logger.debug(f"psd    : {psd[2:8]}")
+            logger.debug(f"psd_on : {psd_on[2:8]}")
+            logger.debug(f"psd_off: {psd_off[2:8]}")
 
             # Hysteresis: different decision boundary depending on current state
             if last_smoothed:  # currently ON → make it harder to turn OFF
@@ -591,6 +592,17 @@ async def detection_loop(
                 await result_queue.put(result)
                 last_written_time = time.monotonic()
                 last_written = smoothed
+                if plot:
+                    asyncio.create_task(
+                        asyncio.to_thread(
+                            plot_psd_comparison,
+                            freqs=freq,
+                            psd_on=psd_on,
+                            psd_off=psd_off,
+                            psd_live=psd,
+                            save_path=DATA_DIR / "live.png",
+                        )
+                    )
 
             await asyncio.sleep(interval_sec)
     except asyncio.CancelledError:
@@ -601,6 +613,7 @@ async def run_detect(
     device_index: int | None = None,
     threshold_override: float | None = None,
     window_sec: float = ANALYSIS_WINDOW_SEC,
+    plot: bool = False,
 ) -> None:
     psd_on, psd_off, _freqs, tmpl_sr = load_templates()
     thr = load_threshold(override=threshold_override)
@@ -639,6 +652,7 @@ async def run_detect(
             threshold=thr,
             result_queue=result_queue,
             window_sec=window_sec,
+            plot=plot,
         )
     )
 
@@ -674,12 +688,14 @@ def main() -> None:
     p_train.add_argument("-t", "--duration", type=float, default=8.0)
 
     sub.add_parser("calibrate", help="Re-compute threshold from existing templates")
-    sub.add_parser("plot", help="plot diagram from existing PSD on templates")
+    p_plot = sub.add_parser("plot", help="plot diagram from existing PSD on templates")
+    p_plot.add_argument("-f", "--filename", type=str, default="diagram.png")
 
     p_det = sub.add_parser("detect", help="Live async detection → SQLite")
     p_det.add_argument("-d", "--device", type=int, default=None)
     p_det.add_argument("--threshold", type=float, default=None)
     p_det.add_argument("--window", type=float, default=ANALYSIS_WINDOW_SEC)
+    p_det.add_argument("--plot", action="store_true")
 
     sub.add_parser("devices", help="List microphone devices")
 
@@ -707,13 +723,14 @@ def main() -> None:
                         device_index=args.device,
                         threshold_override=args.threshold,
                         window_sec=args.window,
+                        plot=args.plot,
                     )
                 )
             except KeyboardInterrupt:
                 logger.error("Interrupted.")
         case "plot":
             psd_on, psd_off, freqs, tmpl_sr = load_templates()
-            save_path = DATA_DIR / "diagram.png"
+            save_path = DATA_DIR / args.filename
             plot_psd_comparison(freqs=freqs, psd_on=psd_on, psd_off=psd_off, save_path=save_path)
 
 
