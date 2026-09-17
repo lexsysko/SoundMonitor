@@ -108,7 +108,10 @@ WELCH_WINDOW_SEC = 0.256
 FREQ_RANGE = (60.0, 1000.0)
 
 DEFAULT_THRESHOLD = 0.60
-SMOOTH_WINDOWS = 5
+SMOOTH_WINDOWS = 30
+MIN_CONFIRM = 20  # how many votes needed to change state (out of 30)
+THRESHOLD_ON = 0.95  # harder to turn ON
+THRESHOLD_OFF = 1.05  # harder to turn OFF
 MIN_RECORD_SEC = 3.0
 SAFETY_MARGIN = 0.18
 
@@ -514,6 +517,7 @@ async def detection_loop(
     last_smoothed: bool | None = None
     last_written: bool | None = None  # last state sent to DB
     min_samples = int(mic.sr * 0.8)
+    cold_start: bool = True
 
     logger.info(f"  Detection loop running @ {mic.sr} Hz (Ctrl+C to stop)")
     try:
@@ -529,13 +533,28 @@ async def detection_loop(
             d_on = spectral_distance(psd[:n], psd_on[:n])
             d_off = spectral_distance(psd[:n], psd_off[:n])
 
-            is_on = d_on < (d_off * threshold)
+            # Hysteresis: different decision boundary depending on current state
+            if last_smoothed:  # currently ON → make it harder to turn OFF
+                is_on = d_on < (d_off * THRESHOLD_OFF)
+            else:  # currently OFF (or first sample) → make it harder to turn ON
+                is_on = d_on < (d_off * THRESHOLD_ON)
 
             history.append(is_on)
             if len(history) > SMOOTH_WINDOWS:
                 history.pop(0)
-            smoothed = sum(history) > len(history) / 2
 
+            # Strong majority required to change state
+            votes_on = sum(history)
+            votes_min_confirmed = votes_on >= MIN_CONFIRM
+            if votes_min_confirmed:
+                smoothed = True
+            elif votes_on <= (SMOOTH_WINDOWS - MIN_CONFIRM):
+                smoothed = False
+            else:
+                # stay in previous state (hysteresis zone)
+                smoothed = last_smoothed if last_smoothed is not None else False
+
+            # Logging
             state_str = "ON " if smoothed else "off"
             marker = (
                 " <<<"
@@ -552,13 +571,16 @@ async def detection_loop(
 
             # --- DB only on trusted state change ---
             if last_written is None or smoothed != last_written:
-                result = DetectionResult(
-                    timestamp=time.time(),
-                    state=smoothed,  # trusted state
-                    d_on=d_on,
-                    d_off=d_off,
-                )
-                await result_queue.put(result)
+                if not cold_start:
+                    result = DetectionResult(
+                        timestamp=time.time(),
+                        state=smoothed,  # trusted state
+                        d_on=d_on,
+                        d_off=d_off,
+                    )
+                    await result_queue.put(result)
+                else:
+                    cold_start = False
                 last_written = smoothed
 
             await asyncio.sleep(interval_sec)
