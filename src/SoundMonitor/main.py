@@ -1,176 +1,257 @@
 #!/usr/bin/env python3
 """
-Refrigerator Compressor ON/OFF Detector
-=======================================
-- Training mode: record mic samples → save two .npz templates (on.npz / off.npz)
-- Automatic threshold calibration from the two templates
-- Detection mode: live mic monitoring using the trained templates + calibrated threshold
-- Direct PyAudio microphone access
+Refrigerator Compressor ON/OFF Detector (async)
+===============================================
+- Training: record ON/OFF → .npz templates + auto threshold calibration
+- Live detection: non-blocking PyAudio callback + asyncio
+- Results → asyncio.Queue → background worker → aiosqlite
+- Auto sample-rate fallback: tries 16000, then 44100, then 48000
 
-Install (Debian/Ubuntu/Raspberry Pi):
+Install:
     sudo apt update
     sudo apt install -y portaudio19-dev python3-pyaudio
-    # or:  pip install pyaudio   (after portaudio19-dev is present)
-
-    pip install numpy scipy
+    pip install numpy scipy aiosqlite
 
 Usage:
-    python main.py train          # record + auto-calibrate
-    python main.py calibrate      # re-calibrate from existing templates
-    python main.py detect         # live detection (uses calibrated threshold)
+    python main.py train
+    python main.py calibrate
+    python main.py detect
     python main.py devices
 """
 
+from collections import deque
+from pathlib import Path
+from threading import Lock
+
 import argparse
+import asyncio
+import functools
 import json
-import os
+import logging
+import numpy as np
 import sys
 import time
-from pathlib import Path
-
-import numpy as np
+from dataclasses import dataclass
 from scipy.signal import butter, sosfilt, welch
+from typing import Deque, Tuple
 
-# ---------------------------------------------------------------------------
-# Optional PyAudio import with clear error
-# ---------------------------------------------------------------------------
+from __init__ import __version__
+
+
+def time_it(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.perf_counter()  # High-resolution clock
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+
+        execution_time = end_time - start_time
+        print(f"Function '{func.__name__}' took {execution_time:.6f} seconds")
+        return result
+
+    return wrapper
+
+
+def setup_logger(level: str | int = logging.INFO) -> logging.Logger:
+    """Configure and return the application logger."""
+    if isinstance(level, str):
+        try:
+            resolved_level = int(level)
+        except ValueError:
+            resolved_level = getattr(logging, level.upper(), logging.INFO)
+    elif isinstance(level, int):
+        resolved_level = level
+    else:
+        resolved_level = logging.INFO
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,
+    )
+    log = logging.getLogger(Path(__file__).parent.name)
+    log.setLevel(resolved_level)
+    return log
+
+
+logger = setup_logger()
+
 try:
     import pyaudio
 except ImportError:
-    print(
+    logger.info(
         "ERROR: pyaudio is not installed.\n"
         "  sudo apt install -y portaudio19-dev\n"
-        "  pip install pyaudio\n"
+        "  uv add pyaudio\n"
     )
+    sys.exit(1)
+
+try:
+    import aiosqlite
+except ImportError:
+    logger.error("ERROR: aiosqlite is not installed.\n  uv add aiosqlite\n")
     sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SR = 16000  # sample rate
-SAFE_SR = 44100  # safe sample rate
+# Preferred rates in order. First one that the device accepts is used.
+# PREFERRED_RATES = [16000, 44100, 48000]
+PREFERRED_RATES = [44100, 48000, 16000]
+
 CHANNELS = 1
-CHUNK = 1024  # frames per buffer
+CHUNK = 1024
 
-# Spectral analysis
-NPERSEG = 4096  # ~256 ms
-FREQ_RANGE = (60.0, 1000.0)  # Hz – region of interest
+# Target Welch window length in seconds (adapted to actual SR)
+WELCH_WINDOW_SEC = 0.256
+FREQ_RANGE = (60.0, 1000.0)
 
-# Detection defaults (overridden by calibration when available)
-DEFAULT_THRESHOLD = 0.60  # used only if no calibration file exists
-SMOOTH_WINDOWS = 3  # majority vote over last N decisions
-MIN_RECORD_SEC = 3.0  # minimum useful recording length for a template
-
-# Safety margin: how much we bias the decision boundary toward OFF
-# (reduces false positives). 0.0 = exact midpoint, 0.15–0.25 = safer.
+DEFAULT_THRESHOLD = 0.60
+SMOOTH_WINDOWS = 5
+MIN_RECORD_SEC = 3.0
 SAFETY_MARGIN = 0.18
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = BASE_DIR / "data"
+ANALYSIS_WINDOW_SEC = 1.5
+DETECT_INTERVAL_SEC = 0.5
+BUFFER_SEC = 4.0
+
+BASE_PATH = Path(__file__).parent.parent.parent
+DATA_DIR = BASE_PATH / "data"
+DB_FILE = DATA_DIR / "snd_data.db"
+if not DB_FILE.parent.exists():
+    # Safe for both CLI package execution and local development
+    DB_FILE = Path.cwd() / "data/snd_data.db"
+
+DB_FILE.parent.mkdir(exist_ok=True, parents=True)
+APP_VERSION = __version__
 
 TEMPLATE_DIR = DATA_DIR / "templates"
 ON_FILE = TEMPLATE_DIR / "compressor_on.npz"
 OFF_FILE = TEMPLATE_DIR / "compressor_off.npz"
 THRESHOLD_FILE = TEMPLATE_DIR / "threshold.json"
 
+# Runtime sample rate (set after successful open)
+EFFECTIVE_SR: int = PREFERRED_RATES[0]
+
+
+def nperseg_for(sr: int) -> int:
+    """Welch window ≈ WELCH_WINDOW_SEC, rounded to the nearest power of 2."""
+    target = int(sr * WELCH_WINDOW_SEC)
+    # next power of 2 (or nearest – pick what you prefer)
+    n = 1 << (target - 1).bit_length()  # ceil to 2^N
+    # optional: also allow previous power of 2 if closer
+    prev = n >> 1
+    if prev >= 256 and abs(target - prev) < abs(target - n):
+        n = prev
+    return max(256, min(n, 16384))
+
+
+@dataclass
+class DetectionResult:
+    timestamp: float
+    state: bool
+    d_on: float
+    d_off: float
+
 
 # ---------------------------------------------------------------------------
-# Audio helpers
+# Open stream with rate fallback
 # ---------------------------------------------------------------------------
+def open_input_stream(
+    pa: pyaudio.PyAudio,
+    device_index: int | None = None,
+    callback=None,
+) -> Tuple[pyaudio.Stream, int]:
+    """
+    Try PREFERRED_RATES in order until the device accepts one.
+    Returns (stream, effective_sr).
+    """
+    last_err: Exception | None = None
+    for rate in PREFERRED_RATES:
+        kwargs = dict(
+            format=pyaudio.paInt16,
+            channels=CHANNELS,
+            rate=rate,
+            input=True,
+            frames_per_buffer=CHUNK,
+        )
+        if device_index is not None:
+            kwargs["input_device_index"] = device_index
+        if callback is not None:
+            kwargs["stream_callback"] = callback
+
+        try:
+            stream = pa.open(**kwargs)
+            logger.info(f"  Audio opened at {rate} Hz")
+            return stream, rate
+        except Exception as e:
+            last_err = e
+            logger.error(f"  Rate {rate} Hz not accepted: {e}")
+
+    raise RuntimeError(
+        f"Could not open input stream at any of {PREFERRED_RATES}. "
+        f"Last error: {last_err}"
+    )
+
+
 def list_input_devices() -> None:
     pa = pyaudio.PyAudio()
-    print("\nAvailable input devices:")
+    buff = "\nAvailable input devices:"
     for i in range(pa.get_device_count()):
         info = pa.get_device_info_by_index(i)
         if info["maxInputChannels"] > 0:
-            print(
-                f"  [{i}] {info['name']}  "
+            buff += (
+                f"\n  [{i}] {info['name']}  "
                 f"(max in={info['maxInputChannels']}, "
                 f"default rate={int(info['defaultSampleRate'])})"
             )
     pa.terminate()
-
-
-def open_stream_silent(pa, **kwargs):
-    stderr_fd = os.dup(2)
-
-    try:
-        with open(os.devnull, "w") as devnull:
-            os.dup2(devnull.fileno(), 2)
-
-            return pa.open(**kwargs)
-    finally:
-        os.dup2(stderr_fd, 2)
-        os.close(stderr_fd)
+    logger.info(buff + "\n")
 
 
 def record_seconds(
-    seconds: float, device_index: int | None = None
-) -> tuple[np.ndarray, int]:
+    seconds: float,
+    device_index: int | None = None,
+) -> Tuple[np.ndarray, int]:
+    """
+    Blocking record for training.
+    Returns (audio_float32, effective_sr).
+    """
+    global EFFECTIVE_SR
     pa = pyaudio.PyAudio()
-
-    if device_index is None:
-        device_index = int(pa.get_default_input_device_info()["index"])
-
-    pa_options = {
-        "format": pyaudio.paInt16,
-        "channels": CHANNELS,
-        "input": True,
-        "input_device_index": device_index,
-        "frames_per_buffer": CHUNK,
-    }
-
-    try:
-        rate = SR
-        pa_options["rate"] = rate
-        stream = pa.open(**pa_options)
-        # stream = open_stream_silent(pa, **pa_options)
-    except OSError as exc:
-        if exc.errno != -9997:
-            raise
-
-        rate = SAFE_SR
-        pa_options["rate"] = rate
-        # print(f"Sample rate {SR} Hz is not supported, using {rate} Hz")
-
-        stream = pa.open(**pa_options)
-        # stream = open_stream_silent(pa, **pa_options)
-
-    print("Recording...")
+    stream, sr = open_input_stream(pa, device_index=device_index)
+    EFFECTIVE_SR = sr
 
     frames = []
-    n_chunks = int(rate / CHUNK * seconds)
-
+    n_chunks = max(1, int(sr / CHUNK * seconds))
+    logger.info(f"  Recording {seconds:.1f}s @ {sr} Hz …")
     for _ in range(n_chunks):
-        try:
-            data = stream.read(CHUNK, exception_on_overflow=False)
-        except OSError:
-            break
-
-        samples = np.frombuffer(data, dtype=np.int16)
-
-        frames.append(samples)
-
+        data = stream.read(CHUNK, exception_on_overflow=False)
+        frames.append(np.frombuffer(data, dtype=np.int16))
     stream.stop_stream()
     stream.close()
     pa.terminate()
-
-    print(" done")
+    logger.info("  Recording done")
 
     audio = np.concatenate(frames).astype(np.float32)
     audio /= 32768.0
+    return audio, sr
 
-    return audio, rate
 
-
-def compute_psd(audio: np.ndarray, sr: int = SR) -> tuple[np.ndarray, np.ndarray]:
-    """Welch PSD limited to FREQ_RANGE, returned as (freqs, normalized_psd)."""
+# @time_it
+def compute_psd(
+    audio: np.ndarray,
+    sr: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    if sr is None:
+        sr = EFFECTIVE_SR
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
     sos = butter(2, 25, btype="high", fs=sr, output="sos")
     audio = sosfilt(sos, audio.astype(np.float64))
 
-    nperseg = min(NPERSEG, max(256, len(audio) // 4))
+    nperseg = min(nperseg_for(sr), max(256, len(audio) // 4))
     freqs, psd = welch(audio, fs=sr, nperseg=nperseg, scaling="density")
     mask = (freqs >= FREQ_RANGE[0]) & (freqs <= FREQ_RANGE[1])
     freqs = freqs[mask]
@@ -179,12 +260,8 @@ def compute_psd(audio: np.ndarray, sr: int = SR) -> tuple[np.ndarray, np.ndarray
     return freqs, psd.astype(np.float32)
 
 
+# @time_it
 def spectral_distance(psd_a: np.ndarray, psd_b: np.ndarray) -> float:
-    """
-    Distance between two normalized PSD vectors.
-    0 = identical shape, higher = more different.
-    Uses 1 - cosine similarity (robust to overall gain).
-    """
     a = psd_a.astype(np.float64)
     b = psd_b.astype(np.float64)
     n = min(len(a), len(b))
@@ -195,23 +272,7 @@ def spectral_distance(psd_a: np.ndarray, psd_b: np.ndarray) -> float:
     return float(1.0 - cos)
 
 
-# ---------------------------------------------------------------------------
-# Automatic threshold calibration
-# ---------------------------------------------------------------------------
 def calibrate_from_templates(verbose: bool = True) -> dict:
-    """
-    Derive a decision threshold from the two saved templates only
-    (no extra recordings needed).
-
-    Decision rule used later:
-        is_on = (d_on < d_off * threshold)
-
-    We place the boundary near the midpoint between the two templates
-    in distance space, then apply a safety margin that biases slightly
-    toward OFF (fewer false positives).
-
-    Returns a dict that is also written to threshold.json.
-    """
     if not ON_FILE.exists() or not OFF_FILE.exists():
         raise FileNotFoundError(
             f"Need both {ON_FILE.name} and {OFF_FILE.name}. Run 'train' first."
@@ -219,37 +280,8 @@ def calibrate_from_templates(verbose: bool = True) -> dict:
 
     on = np.load(ON_FILE)
     off = np.load(OFF_FILE)
-    psd_on = on["psd"]
-    psd_off = off["psd"]
-
-    # Distance between the two class centroids
-    d_on_off = spectral_distance(psd_on, psd_off)
-
-    # Self-distance is ~0; we still compute for sanity
-    d_on_self = spectral_distance(psd_on, psd_on)
-    d_off_self = spectral_distance(psd_off, psd_off)
-
-    # Ideal midpoint rule in the (d_on, d_off) plane:
-    #   classify ON when d_on / d_off < 1.0
-    # With safety margin we require a stricter ratio:
-    #   threshold = 1.0 / (1.0 + SAFETY_MARGIN)   ≈ 0.85 when margin=0.18
-    # But we also scale by how well separated the templates are.
-    #
-    # More robust formula used here:
-    #   threshold = midpoint_ratio * (1 - SAFETY_MARGIN)
-    # where midpoint_ratio would be 1.0 for equal distance.
-    #
-    # Practical calibrated value:
-    base = 1.0  # pure midpoint
-    threshold = base * (1.0 - SAFETY_MARGIN)
-
-    # Clamp to a sensible range so extreme templates don't produce nonsense
-    threshold = float(np.clip(threshold, 0.35, 0.90))
-
-    # Extra diagnostic: expected scores if a new sample == template
-    # When sample == ON:  d_on≈0, d_off≈d_on_off  →  ratio d_on/d_off ≈ 0
-    # When sample == OFF: d_on≈d_on_off, d_off≈0 → ratio → +inf
-    # Decision boundary at d_on = threshold * d_off
+    d_on_off = spectral_distance(on["psd"], off["psd"])
+    threshold = float(np.clip(1.0 * (1.0 - SAFETY_MARGIN), 0.35, 0.90))
 
     result = {
         "threshold": threshold,
@@ -258,10 +290,7 @@ def calibrate_from_templates(verbose: bool = True) -> dict:
         "method": "midpoint_with_safety_margin",
         "rule": "is_on = (d_on < d_off * threshold)",
         "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "notes": (
-            "Lower threshold → more sensitive (easier ON). "
-            "Higher → stricter (fewer false positives)."
-        ),
+        "template_sr": int(on["sr"]) if "sr" in on else None,
     }
 
     TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -269,31 +298,27 @@ def calibrate_from_templates(verbose: bool = True) -> dict:
         json.dump(result, f, indent=2)
 
     if verbose:
-        print("\n" + "=" * 60)
-        print("AUTOMATIC THRESHOLD CALIBRATION")
-        print("=" * 60)
-        print(f"  Spectral distance ON ↔ OFF : {d_on_off:.4f}")
-        print(f"  Safety margin              : {SAFETY_MARGIN:.2f}")
-        print(f"  Calibrated threshold       : {threshold:.3f}")
-        print(f"  Saved to                   : {THRESHOLD_FILE}")
+        logger.info("=" * 60)
+        logger.info("AUTOMATIC THRESHOLD CALIBRATION")
+        logger.info("=" * 60)
+        logger.info(f"  Spectral distance ON ↔ OFF : {d_on_off:.4f}")
+        logger.info(f"  Safety margin              : {SAFETY_MARGIN:.2f}")
+        logger.info(f"  Calibrated threshold       : {threshold:.3f}")
+        if result["template_sr"]:
+            logger.info(f"  Template sample rate       : {result['template_sr']} Hz")
+        logger.info(f"  Saved to                   : {THRESHOLD_FILE}")
         if d_on_off < 0.12:
-            print("\n  ⚠  Templates are very close – detection will be unreliable.")
-            print(
-                "     Re-record with mic closer to the compressor or longer duration."
-            )
+            logger.warning("  ⚠  Templates very close – detection may be unreliable.")
         elif d_on_off < 0.20:
-            print(
-                "\n  ⚠  Moderate separation. Consider re-recording if you see false triggers."
-            )
+            logger.info("  ⚠  Moderate separation.")
         else:
-            print("\n  ✓  Good separation between ON and OFF templates.")
-        print("=" * 60)
+            logger.info("  ✓  Good separation between ON and OFF templates.")
+        logger.info("=" * 60)
 
     return result
 
 
 def load_threshold(override: float | None = None) -> float:
-    """Return threshold to use: CLI override > calibrated file > default."""
     if override is not None:
         return override
     if THRESHOLD_FILE.exists():
@@ -301,108 +326,210 @@ def load_threshold(override: float | None = None) -> float:
             with open(THRESHOLD_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             t = float(data["threshold"])
-            print(
-                f"  Using calibrated threshold: {t:.3f}  (from {THRESHOLD_FILE.name})"
-            )
+            logger.info(f"  Using calibrated threshold: {t:.3f}")
             return t
         except Exception as e:
-            print(f"  Warning: could not read {THRESHOLD_FILE}: {e}")
-    print(f"  Using default threshold: {DEFAULT_THRESHOLD:.3f}")
+            logger.info(f"  Warning: could not read {THRESHOLD_FILE}: {e}")
+    logger.info(f"  Using default threshold: {DEFAULT_THRESHOLD:.3f}")
     return DEFAULT_THRESHOLD
 
 
-# ---------------------------------------------------------------------------
-# Training
-# ---------------------------------------------------------------------------
+def load_templates() -> tuple[np.ndarray, np.ndarray, int]:
+    if not ON_FILE.exists() or not OFF_FILE.exists():
+        logger.error(f"Templates not found in {TEMPLATE_DIR}")
+        logger.error("Run:  python main.py train")
+        sys.exit(1)
+    on = np.load(ON_FILE)
+    off = np.load(OFF_FILE)
+    tmpl_sr = int(on["sr"]) if "sr" in on else 16000
+    return on["psd"], off["psd"], tmpl_sr
+
+
 def train(device_index: int | None = None, duration: float = 8.0) -> None:
     TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
     list_input_devices()
-    print()
 
     def capture_label(label: str, path: Path) -> None:
         input(f"\n>>> Prepare '{label}' state, then press Enter to start recording…")
-        audio, rate = record_seconds(duration, device_index)
-        if len(audio) < SR * MIN_RECORD_SEC:
-            print("Recording too short – try again.")
+        audio, sr = record_seconds(duration, device_index)
+        if len(audio) < sr * MIN_RECORD_SEC:
+            logger.info("Recording too short – try again.")
             return
-        freqs, psd = compute_psd(audio, sr=rate)
+        freqs, psd = compute_psd(audio, sr=sr)
         np.savez_compressed(
             path,
             freqs=freqs,
             psd=psd,
-            sr=rate,
+            sr=sr,
             duration=duration,
             label=label,
             created=time.strftime("%Y-%m-%d %H:%M:%S"),
         )
-        print(f"  Saved template → {path}")
+        logger.info(f"  Saved template → {path}  (sr={sr})")
         peaks = freqs[np.argsort(psd)[::-1][:5]]
-        print(f"  Top peaks (Hz): {', '.join(f'{p:.0f}' for p in peaks)}")
+        logger.info(f"  Top peaks (Hz): {', '.join(f'{p:.0f}' for p in peaks)}")
 
-    print("=" * 60)
-    print("TRAINING MODE")
-    print("You will record two states of the refrigerator:")
-    print("  1. Compressor ON  (running / humming)")
-    print("  2. Compressor OFF (only fan / room noise, or completely silent)")
-    print(f"Each recording lasts {duration:.0f} seconds.")
-    print("=" * 60)
+    buff = "\n" + "=" * 60
+    buff += "\nTRAINING MODE"
+    buff += "\n  1. Compressor ON"
+    buff += "\n  2. Compressor OFF"
+    buff += f"\nEach recording lasts {duration:.0f} seconds."
+    buff += f"\nWill try sample rates: {PREFERRED_RATES}\n"
+    buff += "=" * 60
+    logger.info(buff)
 
     capture_label("ON", ON_FILE)
     capture_label("OFF", OFF_FILE)
 
-    # Automatic calibration right after training
     if ON_FILE.exists() and OFF_FILE.exists():
         calibrate_from_templates(verbose=True)
-    print("\nTraining + calibration finished.")
-    print("You can now run:  python main.py detect")
+    logger.info("Training + calibration finished.")
+    logger.info("Run:  python main.py detect")
 
 
-# ---------------------------------------------------------------------------
-# Detection
-# ---------------------------------------------------------------------------
-def load_templates() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    if not ON_FILE.exists() or not OFF_FILE.exists():
-        print(f"Templates not found in {TEMPLATE_DIR}")
-        print("Run:  python main.py train")
-        sys.exit(1)
-    on = np.load(ON_FILE)
-    off = np.load(OFF_FILE)
-    return on["freqs"], on["psd"], off["psd"]
+async def init_db(db_path: Path) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS events (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp   REAL    NOT NULL,
+                state       INTEGER NOT NULL,
+                d_on        REAL    NOT NULL,
+                d_off       REAL    NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)"
+        )
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA busy_timeout=5000;")
+        await db.execute("PRAGMA synchronous=NORMAL;")
+        await db.commit()
 
 
-def detect(
-    device_index: int | None = None,
-    threshold: float | None = None,
-    window_sec: float = 1.5,
-    poll_interval: float = 0.6,
+async def db_writer_worker(
+    queue: asyncio.Queue,
+    db_path: Path,
 ) -> None:
-    freqs_ref, psd_on, psd_off = load_templates()
-    thr = load_threshold(override=threshold)
+    await init_db(db_path)
+    logger.info(f"  SQLite writer ready → {db_path}")
 
-    print("=" * 60)
-    print("LIVE DETECTION")
-    print(f"  Template dir : {TEMPLATE_DIR}")
-    print(f"  Threshold    : {thr:.3f}  (lower = more sensitive to ON)")
-    print(f"  Window       : {window_sec:.1f}s")
-    print("  Ctrl+C to stop")
-    print("=" * 60)
-    list_input_devices()
-    print()
+    async with aiosqlite.connect(db_path) as db:
+        while True:
+            item = await queue.get()
+            try:
+                if item is None:
+                    queue.task_done()
+                    break
 
+                await db.execute(
+                    """
+                    INSERT INTO events (timestamp, state, d_on, d_off)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        item.timestamp,
+                        int(item.state),
+                        item.d_on,
+                        item.d_off,
+                    ),
+                )
+                await db.commit()
+                logger.debug(f"[db worker] saved data: {item}")
+            except Exception as e:
+                logger.error(f"[db worker] error: {e}")
+            finally:
+                try:
+                    queue.task_done()
+                except ValueError:
+                    ...
+
+    logger.info("  SQLite writer stopped.")
+
+
+class AsyncMic:
+    """Non-blocking mic via PyAudio callback; auto rate fallback."""
+
+    def __init__(self, device_index: int | None = None):
+        self.device_index = device_index
+        self.sr: int = PREFERRED_RATES[0]
+        self.buffer: Deque[float] = deque()
+        self._pa = None
+        self._stream = None
+        self._lock = Lock()
+
+    def _callback(self, in_data, frame_count, time_info, status) -> Tuple[None, int]:
+        audio = np.frombuffer(in_data, dtype=np.int16).astype(np.float32) / 32768.0
+        with self._lock:
+            self.buffer.extend(audio.tolist())
+        return None, pyaudio.paContinue
+
+    def start(self) -> int:
+        global EFFECTIVE_SR
+        self._pa = pyaudio.PyAudio()
+        self._stream, self.sr = open_input_stream(
+            self._pa,
+            device_index=self.device_index,
+            callback=self._callback,
+        )
+        EFFECTIVE_SR = self.sr
+        # size ring buffer for BUFFER_SEC at the real rate
+        with self._lock:
+            self.buffer = deque(maxlen=int(self.sr * BUFFER_SEC))
+        self._stream.start_stream()
+        logger.info(f"  Microphone stream started (callback, {self.sr} Hz)")
+        return self.sr
+
+    def stop(self) -> None:
+        if self._stream is not None:
+            self._stream.stop_stream()
+            self._stream.close()
+            self._stream = None
+        if self._pa is not None:
+            self._pa.terminate()
+            self._pa = None
+        logger.info("  Microphone stream stopped")
+
+    def get_recent(self, seconds: float) -> np.ndarray:
+        n = int(seconds * self.sr)
+        with self._lock:
+            data = list(self.buffer)
+        if len(data) < n:
+            return np.array(data, dtype=np.float32)
+        return np.array(data[-n:], dtype=np.float32)
+
+
+async def detection_loop(
+    mic: AsyncMic,
+    psd_on: np.ndarray,
+    psd_off: np.ndarray,
+    threshold: float,
+    result_queue: asyncio.Queue,
+    window_sec: float = ANALYSIS_WINDOW_SEC,
+    interval_sec: float = DETECT_INTERVAL_SEC,
+) -> None:
     history: list[bool] = []
-    last_state: bool | None = None
+    last_smoothed: bool | None = None
+    last_written: bool | None = None  # last state sent to DB
+    min_samples = int(mic.sr * 0.8)
 
+    logger.info(f"  Detection loop running @ {mic.sr} Hz (Ctrl+C to stop)")
     try:
         while True:
-            audio, rate = record_seconds(window_sec, device_index)
-            _, psd = compute_psd(audio, sr=rate)
+            audio = mic.get_recent(window_sec)
+            if len(audio) < min_samples:
+                await asyncio.sleep(0.2)
+                continue
 
+            _, psd = await asyncio.to_thread(compute_psd, audio, sr=mic.sr)
             n = min(len(psd), len(psd_on), len(psd_off))
+            # fast, can stay in-loop
             d_on = spectral_distance(psd[:n], psd_on[:n])
             d_off = spectral_distance(psd[:n], psd_off[:n])
 
-            # Calibrated rule
-            is_on = d_on < (d_off * thr)
+            is_on = d_on < (d_off * threshold)
 
             history.append(is_on)
             if len(history) > SMOOTH_WINDOWS:
@@ -410,80 +537,146 @@ def detect(
             smoothed = sum(history) > len(history) / 2
 
             state_str = "ON " if smoothed else "off"
-            marker = " <<<" if smoothed != last_state and last_state is not None else ""
-            print(
-                f"\r[{time.strftime('%H:%M:%S')}]  "
-                f"d_on={d_on:.3f}  d_off={d_off:.3f}  "
-                f"→ {state_str}{marker}   ",
-                end="",
-                flush=True,
+            marker = (
+                " <<<"
+                if smoothed != last_smoothed and last_smoothed is not None
+                else ""
             )
-            if smoothed != last_state and last_state is not None:
-                print()  # newline on change
-            last_state = smoothed
 
-            time.sleep(max(0.0, poll_interval - 0.05))
-    except KeyboardInterrupt:
-        print("\n\nStopped.")
+            logger.debug(
+                # f"[{time.strftime('%H:%M:%S')}]  "
+                f"d_on={d_on:.3f}  d_off={d_off:.3f}  → {state_str} {smoothed} {marker}",
+            )
+
+            last_smoothed = smoothed
+
+            # --- DB only on trusted state change ---
+            if last_written is None or smoothed != last_written:
+                result = DetectionResult(
+                    timestamp=time.time(),
+                    state=smoothed,  # trusted state
+                    d_on=d_on,
+                    d_off=d_off,
+                )
+                await result_queue.put(result)
+                last_written = smoothed
+
+            await asyncio.sleep(interval_sec)
+    except asyncio.CancelledError:
+        ...
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
+async def run_detect(
+    device_index: int | None = None,
+    threshold_override: float | None = None,
+    window_sec: float = ANALYSIS_WINDOW_SEC,
+) -> None:
+    psd_on, psd_off, tmpl_sr = load_templates()
+    thr = load_threshold(override=threshold_override)
+
+    logger.info("=" * 60)
+    logger.info("LIVE ASYNC DETECTION")
+    logger.info(f"  Template dir : {TEMPLATE_DIR}")
+    logger.info(f"  Template SR  : {tmpl_sr} Hz")
+    logger.info(f"  Threshold    : {thr:.3f}")
+    logger.info(f"  Window       : {window_sec:.1f}s")
+    logger.info(f"  SQLite DB    : {DB_FILE}")
+    logger.info(f"  Will try rates: {PREFERRED_RATES}")
+    logger.info("  Ctrl+C to stop")
+    logger.info("=" * 60)
+    list_input_devices()
+    logger.info("")
+
+    result_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+    writer_task = asyncio.create_task(db_writer_worker(result_queue, DB_FILE))
+
+    mic = AsyncMic(device_index=device_index)
+    live_sr = mic.start()
+
+    if live_sr != tmpl_sr:
+        logger.info(
+            f"  ⚠  Live SR ({live_sr}) ≠ template SR ({tmpl_sr}). "
+            "PSD shapes should still match (normalized), but for best "
+            "results re-train at the same rate."
+        )
+
+    detect_task = asyncio.create_task(
+        detection_loop(
+            mic=mic,
+            psd_on=psd_on,
+            psd_off=psd_off,
+            threshold=thr,
+            result_queue=result_queue,
+            window_sec=window_sec,
+        )
+    )
+
+    try:
+        await detect_task
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        ...
+    finally:
+        logger.info("Shutting down…")
+        detect_task.cancel()
+        try:
+            await detect_task
+        except asyncio.CancelledError:
+            ...
+
+        mic.stop()
+        await result_queue.put(None)
+        await writer_task
+        logger.info("Done.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Refrigerator compressor ON/OFF detector (PyAudio + FFT templates)"
+        description="Async refrigerator compressor ON/OFF detector "
+        "(PyAudio callback + asyncio queue + aiosqlite, auto SR fallback)"
     )
+    parser.add_argument("--loglevel", type=str, default="INFO")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # train
     p_train = sub.add_parser("train", help="Record ON/OFF templates + auto-calibrate")
-    p_train.add_argument(
-        "-d", "--device", type=int, default=None, help="PyAudio input device index"
-    )
-    p_train.add_argument(
-        "-t",
-        "--duration",
-        type=float,
-        default=8.0,
-        help="Seconds to record for each template (default 8)",
-    )
+    p_train.add_argument("-d", "--device", type=int, default=None)
+    p_train.add_argument("-t", "--duration", type=float, default=8.0)
 
-    # calibrate (re-run from existing templates)
-    sub.add_parser("calibrate", help="Re-compute threshold from existing on/off .npz")
+    sub.add_parser("calibrate", help="Re-compute threshold from existing templates")
 
-    # detect
-    p_det = sub.add_parser("detect", help="Live detection using saved templates")
-    p_det.add_argument(
-        "-d", "--device", type=int, default=None, help="PyAudio input device index"
-    )
-    p_det.add_argument(
-        "--threshold",
-        type=float,
-        default=None,
-        help="Override calibrated threshold (optional)",
-    )
-    p_det.add_argument(
-        "--window", type=float, default=1.5, help="Analysis window length in seconds"
-    )
+    p_det = sub.add_parser("detect", help="Live async detection → SQLite")
+    p_det.add_argument("-d", "--device", type=int, default=None)
+    p_det.add_argument("--threshold", type=float, default=None)
+    p_det.add_argument("--window", type=float, default=ANALYSIS_WINDOW_SEC)
 
-    # list devices
     sub.add_parser("devices", help="List microphone devices")
 
     args = parser.parse_args()
+    setup_logger(args.loglevel)
 
     if args.cmd == "devices":
         list_input_devices()
     elif args.cmd == "train":
-        train(device_index=args.device, duration=args.duration)
+        try:
+            train(device_index=args.device, duration=args.duration)
+        except KeyboardInterrupt:
+            print()
+            logger.error("Interrupted.")
     elif args.cmd == "calibrate":
-        calibrate_from_templates(verbose=True)
+        try:
+            calibrate_from_templates(verbose=True)
+        except KeyboardInterrupt:
+            logger.error("Interrupted.")
     elif args.cmd == "detect":
-        detect(
-            device_index=args.device,
-            threshold=args.threshold,
-            window_sec=args.window,
-        )
+        try:
+            asyncio.run(
+                run_detect(
+                    device_index=args.device,
+                    threshold_override=args.threshold,
+                    window_sec=args.window,
+                )
+            )
+        except KeyboardInterrupt:
+            logger.error("Interrupted.")
 
 
 if __name__ == "__main__":

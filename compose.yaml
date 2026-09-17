@@ -1,10 +1,11 @@
-name: s-mon
+name: t-mon
 services:
   snd-monitor:
     build:
       context: .
       args:
         VERBOSE: --verbose
+    #        PYTHON_VER_UV: ""
     env_file:
       - path: .env
         required: false
@@ -15,16 +16,16 @@ services:
 
     #    entrypoint: [ "tail", "-f", "/dev/null" ]
 
-    network_mode: host
+    #    network_mode: host
     init: true
     stop_grace_period: 15s
     # Disable AppArmor confinement for raw D-Bus socket access
-    security_opt:
-      - apparmor:unconfined
-    #    privileged: true
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
+    #    security_opt:
+    #      - apparmor:unconfined
+    #    #    privileged: true
+    #    cap_add:
+    #      - NET_ADMIN
+    #      - NET_RAW
     volumes:
       - snd_monitor_data:/app/data
     restart: unless-stopped
@@ -40,7 +41,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin  # Change on first login
     volumes:
       # Mount the SAME data directory read-only into Grafana
-      - snd_monitor_data:/var/lib/grafana/sqlite_data:ro
+      - snd_monitor_data:/var/lib/grafana/snd_data:ro
       - grafana-storage:/var/lib/grafana
     restart: unless-stopped
 

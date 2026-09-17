@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     --mount=type=cache,id=ccache,target=/root/.cache/ccache \
     uv sync ${PYTHON_VER_UV:-} ${VERBOSE:-} --frozen --no-install-project --no-dev
 
-RUN PYTHON_GIL=0 ${UV_PROJECT_ENVIRONMENT}/bin/python -c "\
+RUN if [ -n "${PYTHON_VER_UV}" ]; then export PYTHON_GIL=0; fi; ${UV_PROJECT_ENVIRONMENT}/bin/python -c "\
 import sys; \
 import numpy; \
 import scipy; \
@@ -49,6 +49,20 @@ print('numpy:', numpy.__version__); \
 print('scipy:', scipy.__version__); \
 print('pyaudio:', pyaudio.__version__) \
 "
+
+# 1. Base stage used when PYTHON_VER_UV is empty/unset
+FROM scratch AS uv_python_source
+WORKDIR /uv-python
+
+# 2. Stage used ONLY when PYTHON_VER_UV is set
+FROM builder AS uv_python_source_set
+RUN mkdir -p /uv-python \
+ && cp -a /root/.local/share/uv/python/. /uv-python/ 2>/dev/null || true
+
+# 3. Dynamic target selection (SINGLE LINE)
+# Unset/Empty -> targets "uv_python_source"
+# Set          -> targets "uv_python_source_set"
+FROM uv_python_source${PYTHON_VER_UV:+_set} AS uv_python_final
 
 FROM python:${PYTHON_VER}-slim AS runner
 
@@ -72,13 +86,13 @@ WORKDIR /app
 
 
 # Copy venv from previous stage "builder"
-COPY --from=builder /root/.local/share/uv/python /root/.local/share/uv/python
+COPY --from=uv_python_final /uv-python /root/.local/share/uv/python
 COPY --from=builder /opt/.venv /opt/.venv
 COPY pyproject.toml .
 COPY ./src ./src/
 COPY --chmod=+x ./entrypoint.sh .
 
-ENV PATH="/opt/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=./src PYTHON_GIL=0
+ENV PATH="/opt/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
 
 #USER ${_USER}
 
