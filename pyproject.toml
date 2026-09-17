@@ -1,11 +1,72 @@
 [project]
-name = "soundmonitor"
+name = "SoundMonitor"
 version = "0.2.0"
 requires-python = ">=3.13"
 dependencies = [
     "aiosqlite>=0.22.1",
     "asyncio>=4.0.0",
+    "matplotlib>=3.11.1",
     "pyaudio>=0.2.14",
     "scipy>=1.18.1",
     "scipy-stubs~=1.18.1",
 ]
+
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["python", "http", "monitoring", "sound analyser"]
+
+[project.urls]
+Homepage = "https://github.com/lexsysko/SoundMonitor"
+Documentation = "https://github.com/lexsysko/SoundMonitor#readme"
+Repository = "https://github.com/lexsysko/SoundMonitor.git"
+Issues = "https://github.com/lexsysko/SoundMonitor/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/SoundMonitor"]
+
+[project.scripts]
+thermometermonitor = "SoundMonitor.main:main"
+
+[tool.hatch.build.sdist]
+relative-install = true
+
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9"]
+ignore = [
+    #    "RUF012",
+    #    "RUF022",
+    #    "RUF100",
+    #    "S112",
+    #    "SIM118",
+    #    "UP031",
+    #    "UP032",
+    #    "BLE001",
+    #    "PLW1508"
+]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.flake8]
+max-line-length = 120
+
+
+
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { some-urgent-package = false }
+

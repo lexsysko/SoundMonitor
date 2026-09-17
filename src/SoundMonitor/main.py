@@ -21,7 +21,6 @@ Usage:
 
 from collections import deque
 from pathlib import Path
-from threading import Lock
 
 import argparse
 import asyncio
@@ -32,9 +31,11 @@ import numpy as np
 import sys
 import time
 from dataclasses import dataclass
-from scipy.signal import butter, sosfilt, welch
+from scipy.signal import butter, welch, sosfiltfilt
+from threading import Lock
 from typing import Deque, Tuple
 
+from SoundMonitor.plot_psd import plot_psd_comparison
 from __init__ import __version__
 
 
@@ -80,11 +81,7 @@ logger = setup_logger()
 try:
     import pyaudio
 except ImportError:
-    logger.info(
-        "ERROR: pyaudio is not installed.\n"
-        "  sudo apt install -y portaudio19-dev\n"
-        "  uv add pyaudio\n"
-    )
+    logger.info("ERROR: pyaudio is not installed.\n  sudo apt install -y portaudio19-dev\n  uv add pyaudio\n")
     sys.exit(1)
 
 try:
@@ -109,15 +106,16 @@ FREQ_RANGE = (60.0, 1000.0)
 
 DEFAULT_THRESHOLD = 0.60
 SMOOTH_WINDOWS = 30
-MIN_CONFIRM = 20  # how many votes needed to change state (out of 30)
-THRESHOLD_ON = 0.95  # harder to turn ON
-THRESHOLD_OFF = 1.05  # harder to turn OFF
+MIN_CONFIRM = int(SMOOTH_WINDOWS * 0.85)  # how many votes needed to change state (out of 30)
+THRESHOLD_ON = 1.05  # harder to turn ON
+THRESHOLD_OFF = 0.85  # harder to turn OFF
 MIN_RECORD_SEC = 3.0
 SAFETY_MARGIN = 0.18
 
-ANALYSIS_WINDOW_SEC = 1.5
-DETECT_INTERVAL_SEC = 0.5
-BUFFER_SEC = 4.0
+ANALYSIS_WINDOW_SEC = 3.0
+DETECT_INTERVAL_SEC = 1.2
+BUFFER_SEC = 6.0
+PERIODIC_WRITE_TIME = 120
 
 BASE_PATH = Path(__file__).parent.parent.parent
 DATA_DIR = BASE_PATH / "data"
@@ -192,10 +190,7 @@ def open_input_stream(
             last_err = e
             logger.error(f"  Rate {rate} Hz not accepted: {e}")
 
-    raise RuntimeError(
-        f"Could not open input stream at any of {PREFERRED_RATES}. "
-        f"Last error: {last_err}"
-    )
+    raise RuntimeError(f"Could not open input stream at any of {PREFERRED_RATES}. Last error: {last_err}")
 
 
 def list_input_devices() -> None:
@@ -251,15 +246,27 @@ def compute_psd(
         sr = EFFECTIVE_SR
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
-    sos = butter(2, 25, btype="high", fs=sr, output="sos")
-    audio = sosfilt(sos, audio.astype(np.float64))
 
+    # 1. High-pass filter with zero phase distortion
+    sos = butter(2, 25, btype="high", fs=sr, output="sos")
+    audio = sosfiltfilt(sos, audio.astype(np.float64))
+
+    # 2. Welch PSD with Median segment averaging
     nperseg = min(nperseg_for(sr), max(256, len(audio) // 4))
-    freqs, psd = welch(audio, fs=sr, nperseg=nperseg, scaling="density")
+    freqs, psd = welch(audio, fs=sr, nperseg=nperseg, scaling="density", average="median")
+
+    # 3. Frequency masking
     mask = (freqs >= FREQ_RANGE[0]) & (freqs <= FREQ_RANGE[1])
     freqs = freqs[mask]
     psd = psd[mask]
-    psd = psd / (psd.max() + 1e-12)
+
+    # 4. Threshold-aware normalization to avoid boosting background noise
+    peak_val = psd.max()
+    if peak_val > 1e-7:  # Tune this noise floor to your system
+        psd = psd / peak_val
+    else:
+        psd = np.zeros_like(psd)
+
     return freqs, psd.astype(np.float32)
 
 
@@ -277,9 +284,7 @@ def spectral_distance(psd_a: np.ndarray, psd_b: np.ndarray) -> float:
 
 def calibrate_from_templates(verbose: bool = True) -> dict:
     if not ON_FILE.exists() or not OFF_FILE.exists():
-        raise FileNotFoundError(
-            f"Need both {ON_FILE.name} and {OFF_FILE.name}. Run 'train' first."
-        )
+        raise FileNotFoundError(f"Need both {ON_FILE.name} and {OFF_FILE.name}. Run 'train' first.")
 
     on = np.load(ON_FILE)
     off = np.load(OFF_FILE)
@@ -337,7 +342,7 @@ def load_threshold(override: float | None = None) -> float:
     return DEFAULT_THRESHOLD
 
 
-def load_templates() -> tuple[np.ndarray, np.ndarray, int]:
+def load_templates() -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     if not ON_FILE.exists() or not OFF_FILE.exists():
         logger.error(f"Templates not found in {TEMPLATE_DIR}")
         logger.error("Run:  python main.py train")
@@ -345,7 +350,13 @@ def load_templates() -> tuple[np.ndarray, np.ndarray, int]:
     on = np.load(ON_FILE)
     off = np.load(OFF_FILE)
     tmpl_sr = int(on["sr"]) if "sr" in on else 16000
-    return on["psd"], off["psd"], tmpl_sr
+    # Extract frequencies with fallback check
+    if "freqs" in on:
+        freqs = on["freqs"]
+    else:
+        logger.warning("Frequencies missing in template file. Re-run 'python main.py train'.")
+        freqs = np.array([])  # Or handle accordingly
+    return on["psd"], off["psd"], freqs, tmpl_sr
 
 
 def train(device_index: int | None = None, duration: float = 8.0) -> None:
@@ -403,9 +414,7 @@ async def init_db(db_path: Path) -> None:
             )
             """
         )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA busy_timeout=5000;")
         await db.execute("PRAGMA synchronous=NORMAL;")
@@ -513,13 +522,13 @@ async def detection_loop(
     window_sec: float = ANALYSIS_WINDOW_SEC,
     interval_sec: float = DETECT_INTERVAL_SEC,
 ) -> None:
-    history: list[bool] = []
+    history: deque[bool] = deque(maxlen=SMOOTH_WINDOWS)
     last_smoothed: bool | None = None
     last_written: bool | None = None  # last state sent to DB
     min_samples = int(mic.sr * 0.8)
-    cold_start: bool = True
+    last_written_time: float = 0
 
-    logger.info(f"  Detection loop running @ {mic.sr} Hz (Ctrl+C to stop)")
+    logger.info(f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f} (Ctrl+C to stop)")
     try:
         while True:
             audio = mic.get_recent(window_sec)
@@ -527,21 +536,26 @@ async def detection_loop(
                 await asyncio.sleep(0.2)
                 continue
 
-            _, psd = await asyncio.to_thread(compute_psd, audio, sr=mic.sr)
+            freq, psd = await asyncio.to_thread(compute_psd, audio, sr=mic.sr)
             n = min(len(psd), len(psd_on), len(psd_off))
             # fast, can stay in-loop
             d_on = spectral_distance(psd[:n], psd_on[:n])
             d_off = spectral_distance(psd[:n], psd_off[:n])
+            logger.debug(f"freq Hz: {[float(f'{x:10.6f}'[:10]) for x in freq[4:10]]}")
+            logger.debug(f"psd    : {psd[4:10]}")
+            logger.debug(f"psd_on : {psd_on[4:10]}")
+            logger.debug(f"psd_off: {psd_off[4:10]}")
 
             # Hysteresis: different decision boundary depending on current state
             if last_smoothed:  # currently ON → make it harder to turn OFF
-                is_on = d_on < (d_off * THRESHOLD_OFF)
+                d_off_tr = d_off * threshold * THRESHOLD_OFF
+                is_on = d_on < d_off_tr
             else:  # currently OFF (or first sample) → make it harder to turn ON
-                is_on = d_on < (d_off * THRESHOLD_ON)
+                d_off_tr = d_off * threshold * THRESHOLD_ON
+                is_on = d_on < d_off_tr
 
             history.append(is_on)
-            if len(history) > SMOOTH_WINDOWS:
-                history.pop(0)
+            history_ready = len(history) == SMOOTH_WINDOWS
 
             # Strong majority required to change state
             votes_on = sum(history)
@@ -555,32 +569,27 @@ async def detection_loop(
                 smoothed = last_smoothed if last_smoothed is not None else False
 
             # Logging
-            state_str = "ON " if smoothed else "off"
-            marker = (
-                " <<<"
-                if smoothed != last_smoothed and last_smoothed is not None
-                else ""
-            )
+            state_str = "ON " if is_on else "off"
+            marker = " <<<" if smoothed != last_smoothed and last_smoothed is not None else ""
 
             logger.debug(
                 # f"[{time.strftime('%H:%M:%S')}]  "
-                f"d_on={d_on:.3f}  d_off={d_off:.3f}  → {state_str} {smoothed} {marker}",
+                f"d_on={d_on:.3f}  d_off={d_off:.3f}  d_off_tr={d_off_tr:.3f} → {state_str} {smoothed} {marker}",
             )
 
             last_smoothed = smoothed
+            periodic_write = (time.monotonic() - last_written_time) > PERIODIC_WRITE_TIME
 
             # --- DB only on trusted state change ---
-            if last_written is None or smoothed != last_written:
-                if not cold_start:
-                    result = DetectionResult(
-                        timestamp=time.time(),
-                        state=smoothed,  # trusted state
-                        d_on=d_on,
-                        d_off=d_off,
-                    )
-                    await result_queue.put(result)
-                else:
-                    cold_start = False
+            if history_ready and (last_written is None or smoothed != last_written or periodic_write):
+                result = DetectionResult(
+                    timestamp=time.time(),
+                    state=smoothed,  # trusted state
+                    d_on=d_on,
+                    d_off=d_off,
+                )
+                await result_queue.put(result)
+                last_written_time = time.monotonic()
                 last_written = smoothed
 
             await asyncio.sleep(interval_sec)
@@ -593,7 +602,7 @@ async def run_detect(
     threshold_override: float | None = None,
     window_sec: float = ANALYSIS_WINDOW_SEC,
 ) -> None:
-    psd_on, psd_off, tmpl_sr = load_templates()
+    psd_on, psd_off, _freqs, tmpl_sr = load_templates()
     thr = load_threshold(override=threshold_override)
 
     logger.info("=" * 60)
@@ -656,6 +665,7 @@ def main() -> None:
         description="Async refrigerator compressor ON/OFF detector "
         "(PyAudio callback + asyncio queue + aiosqlite, auto SR fallback)"
     )
+    parser.add_argument("--version", action="version", version=f"App version: {APP_VERSION}")
     parser.add_argument("--loglevel", type=str, default="INFO")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -664,6 +674,7 @@ def main() -> None:
     p_train.add_argument("-t", "--duration", type=float, default=8.0)
 
     sub.add_parser("calibrate", help="Re-compute threshold from existing templates")
+    sub.add_parser("plot", help="plot diagram from existing PSD on templates")
 
     p_det = sub.add_parser("detect", help="Live async detection → SQLite")
     p_det.add_argument("-d", "--device", type=int, default=None)
@@ -675,30 +686,35 @@ def main() -> None:
     args = parser.parse_args()
     setup_logger(args.loglevel)
 
-    if args.cmd == "devices":
-        list_input_devices()
-    elif args.cmd == "train":
-        try:
-            train(device_index=args.device, duration=args.duration)
-        except KeyboardInterrupt:
-            print()
-            logger.error("Interrupted.")
-    elif args.cmd == "calibrate":
-        try:
-            calibrate_from_templates(verbose=True)
-        except KeyboardInterrupt:
-            logger.error("Interrupted.")
-    elif args.cmd == "detect":
-        try:
-            asyncio.run(
-                run_detect(
-                    device_index=args.device,
-                    threshold_override=args.threshold,
-                    window_sec=args.window,
+    match args.cmd:
+        case "devices":
+            list_input_devices()
+        case "train":
+            try:
+                train(device_index=args.device, duration=args.duration)
+            except KeyboardInterrupt:
+                print()
+                logger.error("Interrupted.")
+        case "calibrate":
+            try:
+                calibrate_from_templates(verbose=True)
+            except KeyboardInterrupt:
+                logger.error("Interrupted.")
+        case "detect":
+            try:
+                asyncio.run(
+                    run_detect(
+                        device_index=args.device,
+                        threshold_override=args.threshold,
+                        window_sec=args.window,
+                    )
                 )
-            )
-        except KeyboardInterrupt:
-            logger.error("Interrupted.")
+            except KeyboardInterrupt:
+                logger.error("Interrupted.")
+        case "plot":
+            psd_on, psd_off, freqs, tmpl_sr = load_templates()
+            save_path = DATA_DIR / "diagram.png"
+            plot_psd_comparison(freqs=freqs, psd_on=psd_on, psd_off=psd_off, save_path=save_path)
 
 
 if __name__ == "__main__":
