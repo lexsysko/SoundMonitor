@@ -107,8 +107,8 @@ FREQ_RANGE = (80.0, 500.0)
 DEFAULT_THRESHOLD = 0.60
 SMOOTH_WINDOWS = 30
 MIN_CONFIRM = int(SMOOTH_WINDOWS * 0.85)  # how many votes needed to change state (out of 30)
-THRESHOLD_ON = 1.05  # harder to turn ON
-THRESHOLD_OFF = 0.85  # harder to turn OFF
+THRESHOLD_ON = 0.9  # harder to turn ON
+THRESHOLD_OFF = 1.4  # harder to turn OFF
 MIN_RECORD_SEC = 3.0
 SAFETY_MARGIN = 0.18
 
