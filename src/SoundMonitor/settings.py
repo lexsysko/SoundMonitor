@@ -26,7 +26,7 @@ else:
         DATA_PATH = Path.cwd() / "data"
 
 DATA_PATH.parent.mkdir(exist_ok=True, parents=True)
-DB_FILE = DATA_PATH / environ.get("DB_FILE", "snd_data.db")
+DB_FILE = DATA_PATH / Path(environ.get("DB_FILE", "snd_data.db")).name
 
 APP_VERSION = __version__
 LOGLEVEL: str = environ.get("LOGLEVEL", "INFO").upper()
@@ -43,16 +43,16 @@ CHUNK = 1024
 WELCH_WINDOW_SEC = 0.256
 FREQ_RANGE = (80.0, 500.0)
 DEFAULT_THRESHOLD = 0.60
-SMOOTH_WINDOWS = 30
+SMOOTH_WINDOWS = int(environ.get("SMOOTH_WINDOWS", 30))
 MIN_CONFIRM = int(SMOOTH_WINDOWS * 0.85)  # how many votes needed to change state (out of 30)
-THRESHOLD_ON = 1.05  # harder to turn ON
-THRESHOLD_OFF = 0.85  # harder to turn OFF
+THRESHOLD_ON = float(environ.get("THRESHOLD_ON", 0.9))
+THRESHOLD_OFF = float(environ.get("THRESHOLD_OFF", 1.8))
 MIN_RECORD_SEC = 3.0
 SAFETY_MARGIN = 0.18
 ANALYSIS_WINDOW_SEC = 3.0
 DETECT_INTERVAL_SEC = 1.2
 BUFFER_SEC = 6.0
-PERIODIC_WRITE_TIME = 120
+PERIODIC_WRITE_TIME = int(environ.get("PERIODIC_WRITE_TIME", 120))
 
 TRAIN_DURATION = 8.0
 
