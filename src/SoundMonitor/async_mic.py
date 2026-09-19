@@ -24,8 +24,10 @@ class AsyncMic:
         self._stream = None
         self._lock = Lock()
 
-    def _callback(self, in_data, frame_count, time_info, status) -> Tuple[None, int]:
+    def _callback(self, in_data: bytes, frame_count, time_info, status) -> Tuple[None, int]:
         audio = np.frombuffer(in_data, dtype=np.int16).astype(np.float32) / 32768.0
+        if audio.ndim > 1:
+            audio = np.mean(audio, axis=1)
         with self._lock:
             self.buffer.extend(audio.tolist())
         return None, pyaudio.paContinue

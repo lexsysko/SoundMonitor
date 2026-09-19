@@ -21,7 +21,10 @@ def train(device_index: int | None = None, duration: float = TRAIN_DURATION) -> 
         if len(audio) < sr * MIN_RECORD_SEC:
             logger.warning("Recording too short – try again.")
             return
-        freqs, psd = compute_psd(audio, sr=sr)
+        freqs, psd, success = compute_psd(audio, sr=sr)
+        if not success:
+            logger.warning("Recording may be muted, try again.")
+            return
         save_template(path, freqs=freqs, psd=psd, sr=sr, duration=duration, label=label)
         logger.info(f"  Saved template → {path}  (sr={sr})")
         peaks = freqs[np.argsort(psd)[::-1][:5]]

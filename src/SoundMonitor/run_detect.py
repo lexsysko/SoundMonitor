@@ -1,12 +1,16 @@
+import logging
+
 import asyncio
 
 from SoundMonitor.async_mic import AsyncMic
 from SoundMonitor.audio_device import list_input_devices
 from SoundMonitor.detector import detection_loop
-from SoundMonitor.main import logger, db_writer_worker
+from SoundMonitor.db_writer_worker import db_writer_worker
 from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, TEMPLATE_DIR, DB_FILE, PREFERRED_RATES
 from SoundMonitor.templates import load_templates, load_threshold
 
+
+logger = logging.getLogger(__name__)
 
 async def run_detect(
     device_index: int | None = None,

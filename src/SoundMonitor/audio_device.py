@@ -2,7 +2,6 @@ import logging
 import numpy as np
 from typing import Tuple
 
-from SoundMonitor.main import logger
 from SoundMonitor.settings import CHUNK, set_effective_sr, PREFERRED_RATES, CHANNELS
 
 logger = logging.getLogger(__name__)
@@ -86,6 +85,13 @@ def record_seconds(
     pa.terminate()
     logger.info("  Recording done")
 
-    audio = np.concatenate(frames).astype(np.float32)
-    audio /= 32768.0
+    audio = np.concatenate(frames)
+
+    # force to convert to mono if audio has more than one channel
+    if audio.ndim > 1:
+        audio = np.mean(audio, axis=1)
+
+    # Normalize audio to range [-1.0, 1.0]
+    audio = audio.astype(np.float32) / 32768.0
+
     return audio, sr
