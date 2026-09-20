@@ -32,8 +32,8 @@ class DetectionResult:
 
 async def detection_loop(
     mic: AsyncMic,
-    psd_on: np.ndarray,
-    psd_off: np.ndarray,
+    psd_on: list[np.ndarray],
+    psd_off: list[np.ndarray],
     threshold: float,
     result_queue: asyncio.Queue,
     window_sec: float = ANALYSIS_WINDOW_SEC,
@@ -59,8 +59,8 @@ async def detection_loop(
             freq, psd, success = await asyncio.to_thread(compute_psd, audio, sr=mic.sr)
             if not success:
                 logger.warning("Recording failed: audio device might be muted. Retrying after 10 seconds...")
-                # await asyncio.sleep(10)
-                # continue
+                await asyncio.sleep(10)
+                continue
 
             n = min(len(psd), len(psd_on), len(psd_off))
             # fast, can stay in-loop

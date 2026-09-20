@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import asyncio
 import datetime
 import logging
@@ -17,9 +19,10 @@ INSERT_SENSOR_DATA_SQL = """
 
 
 @asynccontextmanager
-async def get_db_connection(db_path=None):
+async def get_db_connection(db_path: Path | None = None):
     """Centralized database connection provider with optimized PRAGMAs."""
-    path = str(db_path or settings.DB_PATH)
+    path = db_path or settings.DB_FILE
+    logger.info(f"[DB] Using SQLite database file: {db_path}")
     async with aiosqlite.connect(path) as db:
         # Standardize performance & concurrency settings across all connections
         await db.execute("PRAGMA journal_mode=WAL;")
@@ -28,7 +31,7 @@ async def get_db_connection(db_path=None):
         yield db
 
 
-async def init_db(db_path=settings.DB_PATH):
+async def init_db(db_path: Path | None = None):
     async with get_db_connection(db_path) as db:
         await db.execute(
             """
@@ -46,8 +49,7 @@ async def init_db(db_path=settings.DB_PATH):
     logger.info("[DB] Database initialized successfully.")
 
 
-async def db_writer_worker(db_path=settings.DB_PATH):
-    logger.info(f"[DB] Using SQLite database file: {db_path}")
+async def db_writer_worker(db_path: Path | None = None):
     queue = settings.get_db_queue()
     shutdown_event = settings.get_shutdown_event()
     batch = []
@@ -59,7 +61,7 @@ async def db_writer_worker(db_path=settings.DB_PATH):
                 return
             await db.executemany(INSERT_SENSOR_DATA_SQL, batch)
             await db.commit()
-            logger.debug(f"[DB] Saved {len(batch)} sensor readings.")
+            logger.debug(f"[DB] Saved {len(batch)} events.")
             batch.clear()
 
         try:

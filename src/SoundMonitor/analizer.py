@@ -63,9 +63,6 @@ def compute_psd(
 
 
 def spectral_distance(psd_a: np.ndarray, psd_b: np.ndarray) -> float:
-    a = psd_a.astype(np.float64)
-    b = psd_b.astype(np.float64)
-    n = min(len(a), len(b))
-    a, b = a[:n], b[:n]
-    cos = np.dot(a, b) / (a * b)
-    return float(1.0 - cos)
+    n = min(len(psd_a), len(psd_b))
+    cos = np.dot(psd_a[:n], psd_b[:n])
+    return float(1.0 - np.clip(cos, -1.0, 1.0))

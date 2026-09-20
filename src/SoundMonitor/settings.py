@@ -67,35 +67,14 @@ TRAIN_DURATION = 8.0
 
 TEMPLATE_DIR = DATA_PATH / "templates"
 TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATE_LABELS = ("on", "off")
 
-ON_FILE = TEMPLATE_DIR / "compressor_on.npz"
-OFF_FILE = TEMPLATE_DIR / "compressor_off.npz"
+TEMPLATE_FILE_MAKS = "template_{label}_{idx}.npz"
 THRESHOLD_FILE = TEMPLATE_DIR / "threshold.json"
 
 _EFFECTIVE_SR: int = PREFERRED_RATES[0]
 
-
-_shutdown_event = None
-_db_queue = None
 _sr: int
-
-last_frame_counter = {}
-last_packet_time = time.time()
-last_counter_data = {"last_packet_time": time.time()}
-
-
-def get_shutdown_event() -> asyncio.Event:
-    global _shutdown_event
-    if _shutdown_event is None:
-        _shutdown_event = asyncio.Event()
-    return _shutdown_event
-
-
-def get_db_queue() -> asyncio.Queue:
-    global _db_queue
-    if _db_queue is None:
-        _db_queue = asyncio.Queue()
-    return _db_queue
 
 
 def get_effective_sr():
