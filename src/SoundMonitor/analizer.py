@@ -1,7 +1,10 @@
+import logging
 import numpy as np
 from scipy.signal import butter, sosfiltfilt, welch
 
 from SoundMonitor.settings import WELCH_WINDOW_SEC, get_effective_sr, FREQ_RANGE
+
+logger = logging.getLogger(__name__)
 
 
 def nperseg_for(sr: int) -> int:
@@ -17,7 +20,7 @@ def nperseg_for(sr: int) -> int:
 
 
 def compute_psd(
-    audio: np.ndarray, sr: int | None = None, normalize: bool = True, normalize_log: bool = True
+    audio: np.ndarray, sr: int | None = None, normalize: bool = True, normalize_log: bool = False
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     if sr is None:
         sr = get_effective_sr()
@@ -28,10 +31,18 @@ def compute_psd(
     audio = sosfiltfilt(sos, audio.astype(np.float64))
 
     nperseg = min(nperseg_for(sr), max(256, len(audio) // 4))
+    # nperseg = nperseg_for(sr)
+
+    # logger.debug(f"compute_psd {nperseg=}  {len(audio)=}  {(len(audio)/sr)=} ")
+
     freqs, psd = welch(audio, fs=sr, nperseg=nperseg, scaling="density", average="median")
+
+    logger.debug(f"compute_psd welch {len(psd)=} {len(freqs)=}")
 
     mask = (freqs >= FREQ_RANGE[0]) & (freqs <= FREQ_RANGE[1])
     freqs, psd = freqs[mask], psd[mask]
+
+    # logger.debug(f"compute_psd masked {len(psd)=} {len(freqs)=}  {FREQ_RANGE[0]} - {FREQ_RANGE[1]}")
 
     if not normalize:
         return freqs, psd.astype(np.float32), True
@@ -58,6 +69,8 @@ def compute_psd(
     else:
         psd_norm = np.zeros_like(psd_log)
         success = False
+
+    # logger.debug(f"compute_psd return {len(psd_norm)=} {len(freqs)=}")
 
     return freqs, psd_norm.astype(np.float32), success
 

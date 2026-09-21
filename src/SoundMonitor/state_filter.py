@@ -1,9 +1,9 @@
 import logging
 from collections import deque
 from dataclasses import dataclass
-from enum import Enum
 import numpy as np
 
+from SoundMonitor.enums import AnalyzeMethods
 from SoundMonitor.settings import (
     FILTER_WINDOW_SIZE,
     FILTER_THRESH_STREAK_PERC,
@@ -15,13 +15,6 @@ from SoundMonitor.settings import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class AnalyzeMethods(Enum):
-    WEIGHTED_DENSITY = 1
-    CONSECUTIVE_TAIL = 2
-    STABILITY_STATE = 3
-    SCORED_WEIGHTED_DENSITY = 4
 
 
 @dataclass
@@ -47,7 +40,7 @@ class StateFilter:
     def __init__(
         self,
         window_size: int = FILTER_WINDOW_SIZE,
-        method: AnalyzeMethods = AnalyzeMethods.STABILITY_STATE,
+        method: str = "stability_state",
         thresh: StateFilterThresh | None = None,
     ):
         self.history = deque(maxlen=window_size)
@@ -58,7 +51,8 @@ class StateFilter:
         if not self.thresh.streak:
             self.thresh.streak = (window_size * 100) // FILTER_THRESH_STREAK_PERC
         self.current_state = 0  # 0 = OFF, 1 = ON
-        self.method = method
+        self.method: AnalyzeMethods = AnalyzeMethods(method.lower())
+        logger.debug(self.method)
 
     def is_history_ready(self) -> bool:
         return len(self.history) == self.history.maxlen

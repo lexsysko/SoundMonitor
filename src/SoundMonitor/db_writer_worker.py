@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import time
 
 import datetime
@@ -52,6 +54,7 @@ async def init_db(db_path: Path | None = None) -> None:
         await db.execute("PRAGMA busy_timeout=5000;")
         await db.execute("PRAGMA synchronous=NORMAL;")
         await db.commit()
+    logger.info("init_db done")
 
 
 async def db_writer_worker(
@@ -59,54 +62,57 @@ async def db_writer_worker(
     shutdown_event: asyncio.Event,
     db_path: Path | None = None,
 ) -> None:
-    await init_db(db_path)
-    logger.info(f"  SQLite writer ready")
+    logger.info(f"[DB] Worker is ready")
     batch = []
 
     async with get_db_connection(db_path) as db:
 
         async def flush_batch():
-            if not batch:
+            if not batch or batch[0] is None:
                 return
-            await db.executemany(INSERT_EVENTS_DATA_SQL, batch)
-            await db.commit()
-            logger.debug(f"[DB] Saved {len(batch)} events.")
-            batch.clear()
+            try:
+                await db.executemany(INSERT_EVENTS_DATA_SQL, batch)
+                await db.commit()
+                logger.debug(f"[DB] Saved {len(batch)} events.")
+                batch.clear()
+            except Exception as e:
+                logger.error(str(e))
 
         try:
             while not (shutdown_event.is_set() and queue.empty()):
-                try:
-                    get_task = asyncio.create_task(queue.get())
-                    shutdown_task = asyncio.create_task(shutdown_event.wait())
+                get_task = asyncio.create_task(queue.get())
+                shutdown_task = asyncio.create_task(shutdown_event.wait())
 
-                    done, pending = await asyncio.wait(
-                        {get_task, shutdown_task},
-                        timeout=BATCH_FLUSH_DB_TIMEOUT,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
+                done, pending = await asyncio.wait(
+                    (get_task, shutdown_task),
+                    timeout=BATCH_FLUSH_DB_TIMEOUT,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                # logger.debug(f"[DB] after wait {done=}  {pending=}")
 
-                    # Clean up tasks that did not complete
-                    for task in pending:
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
+                # Cancel leftovers
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        ...
 
-                    if get_task in done:
-                        item = get_task.result()
+                if get_task in done:
+                    if item := get_task.result():
                         batch.append(item)
-                        queue.task_done()
-                    elif shutdown_task in done:
-                        logger.info("[DB] Shutdown event received, stopping worker...")
-                    else:
-                        # Timed out without getting an item or shutdown signal
-                        await flush_batch()
+                        logger.debug(f"[DB] {len(batch)=}")
+                    queue.task_done()
 
-                    if len(batch) >= 10:
-                        await flush_batch()
+                elif shutdown_task in done:
+                    logger.info("[DB] Shutdown event received, stopping worker...")
 
-                except asyncio.TimeoutError:
+                else:
+                    # Timeout branch
+                    # logger.debug(f"[DB] Timeout expired, flushing batch {len(batch)=}")
+                    await flush_batch()
+
+                if len(batch) >= 10:
                     await flush_batch()
 
         finally:
@@ -121,7 +127,7 @@ async def db_writer_worker(
             await flush_batch()
             logger.info("[DB] Writer worker shut down cleanly.")
 
-    logger.info("  SQLite writer stopped.")
+    logger.info("[DB] Worker stopped.")
 
 
 async def async_cleanup(cutoff_timestamp: float, db_path: Path | None = None) -> int:

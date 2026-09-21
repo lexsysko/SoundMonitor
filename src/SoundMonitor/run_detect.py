@@ -3,13 +3,14 @@ import logging
 
 from SoundMonitor.async_mic import AsyncMic
 from SoundMonitor.audio_device import list_input_devices
-from SoundMonitor.db_writer_worker import db_writer_worker, db_cleanup_worker
+from SoundMonitor.db_writer_worker import db_writer_worker, db_cleanup_worker, init_db
 from SoundMonitor.detector import detection_loop
 from SoundMonitor.handler_signal import setup_signal_handlers
 from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, TEMPLATE_DIR, DB_FILE, PREFERRED_RATES
 from SoundMonitor.templates import load_templates, load_threshold
 
 logger = logging.getLogger(__name__)
+
 
 async def run_detect(
     device_index: int | None = None,
@@ -37,8 +38,13 @@ async def run_detect(
     setup_signal_handlers(shutdown_event, asyncio.get_running_loop())
 
     result_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
-    writer_task = asyncio.create_task(db_writer_worker(queue=result_queue, shutdown_event=shutdown_event, db_path=DB_FILE))
+    await init_db(db_path=DB_FILE)
+
+    writer_task = asyncio.create_task(
+        db_writer_worker(queue=result_queue, shutdown_event=shutdown_event, db_path=DB_FILE)
+    )
     cleanup_task = asyncio.create_task(db_cleanup_worker(shutdown_event=shutdown_event, db_path=DB_FILE))
+    await asyncio.sleep(0.5)
 
     mic = AsyncMic(device_index=device_index)
     live_sr = mic.start()
@@ -63,7 +69,6 @@ async def run_detect(
     )
 
     await shutdown_event.wait()
-
 
     logger.info("Shutting down…")
     detect_task.cancel()

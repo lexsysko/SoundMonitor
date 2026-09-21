@@ -5,7 +5,7 @@ services:
       context: .
       args:
         VERBOSE: --verbose
-    #        PYTHON_VER_UV: ""
+        PYTHON_VER_UV: ""
     env_file:
       - path: .env
         required: false

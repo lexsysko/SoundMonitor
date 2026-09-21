@@ -6,40 +6,48 @@ import numpy as np
 from SoundMonitor.analizer import compute_psd
 from SoundMonitor.audio_device import list_input_devices, record_seconds
 from SoundMonitor.calibrate import calibrate_from_templates
-from SoundMonitor.settings import MIN_RECORD_SEC, PREFERRED_RATES, TRAIN_DURATION, TEMPLATE_LABELS
-from SoundMonitor.templates import save_template
+from SoundMonitor.settings import (
+    MIN_RECORD_SEC,
+    PREFERRED_RATES,
+    TRAIN_DURATION,
+    TEMPLATE_COUNTERS_DELAY_SEC,
+    TEMPLATE_COUNTERS,
+    TEMPLATE_LABELS,
+    NORMALIZE_LOG,
+)
+from SoundMonitor.templates import save_template, prune_templates
 
 logger = logging.getLogger(__name__)
 
 
-def train(device_index: int | None = None, duration: float = TRAIN_DURATION, train_mode: str = "auto") -> None:
-    list_input_devices()
-    counters: dict[str, int] = {
-        "on": 30,
-        "off": 5,
-    }
-    counters_delay_sec: dict[str, int] = {
-        "on": 30,
-        "off": 60,
-    }
+def capture_label(duration, device_index, label: str, idx, confirm: bool = True) -> bool:
+    if confirm:
+        input(f"\n>>> Prepare '{label} [{idx}]' state, then press Enter to start recording…")
+    else:
+        logger.info(f"Start recording for '{label} [{idx}]' ...")
+    audio, sr = record_seconds(duration, device_index)
+    if len(audio) < sr * MIN_RECORD_SEC:
+        logger.warning("Recording too short – try again.")
+        return False
+    freqs, psd, success = compute_psd(audio, sr=sr, normalize=True, normalize_log=NORMALIZE_LOG)
+    if not success:
+        logger.warning("Recording may be muted, try again.")
+        return False
+    save_template(freqs=freqs, psd=psd, sr=sr, duration=duration, label=label, idx=idx)
+    peaks = freqs[np.argsort(psd)[::-1][:5]]
+    logger.info(f"  Top peaks (Hz) from {len(freqs)}: {', '.join(f'{p:.0f}' for p in peaks)}")
+    return True
 
-    def capture_label(label: str, idx, confirm: bool = True) -> bool:
-        if confirm:
-            input(f"\n>>> Prepare '{label} [{idx}]' state, then press Enter to start recording…")
-        else:
-            logger.info(f"Start recording for'{label} [{idx}]' ...")
-        audio, sr = record_seconds(duration, device_index)
-        if len(audio) < sr * MIN_RECORD_SEC:
-            logger.warning("Recording too short – try again.")
-            return False
-        freqs, psd, success = compute_psd(audio, sr=sr)
-        if not success:
-            logger.warning("Recording may be muted, try again.")
-            return False
-        save_template(freqs=freqs, psd=psd, sr=sr, duration=duration, label=label, idx=idx)
-        peaks = freqs[np.argsort(psd)[::-1][:5]]
-        logger.info(f"  Top peaks (Hz): {', '.join(f'{p:.0f}' for p in peaks)}")
-        return True
+
+def train(
+    device_index: int | None = None,
+    duration: float = TRAIN_DURATION,
+    train_mode: str = "auto",
+    count: int | None = None,
+    delay: int | None = None,
+    prune: bool = False,
+) -> None:
+    list_input_devices()
 
     buff = "\n" + "=" * 60
     buff += f"\nTRAINING MODE: {train_mode}"
@@ -49,21 +57,31 @@ def train(device_index: int | None = None, duration: float = TRAIN_DURATION, tra
     logger.info(buff)
 
     match train_mode:
-        case "auto":
-            buff = "\n" + "=" * 60
-            buff += f"\n  1. Compressor ON. Total templates: ({counters['on']}) with delay {counters_delay_sec['on']} seconds"
-            buff += f"\n  2. Compressor OFF. Total templates: ({counters['off']}) with delay {counters_delay_sec['off']} seconds"
+        case "on":
+            labels = ("on",)
+        case "off":
+            labels = ("off",)
+        case _:
+            labels: tuple[str] = TEMPLATE_LABELS
 
-            logger.info(buff)
-            for label in TEMPLATE_LABELS:
-                for idx in range(counters[label]):
-                    while True:
-                        if capture_label(label, idx, confirm=(idx == 0)):
-                            sleep(counters_delay_sec[label])
-                            break
-                        else:
-                            logger.info("Sleeping 5 seconds ...")
-                            sleep(5)
+    for label in labels:
+        train_count = count or TEMPLATE_COUNTERS.get(label, 2)
+        train_delay = delay or TEMPLATE_COUNTERS_DELAY_SEC.get(label, 30)
+        buff = "\n" + "=" * 60
+        buff += f"\n  Compressor {label.upper()}. Total templates: ({train_count}) with delay {train_delay} seconds"
+        if prune:
+            count = prune_templates(label=label)
+            buff += f"\n Pruned total: {count} previous templates for label: {label}"
+        logger.info(buff)
+        for idx in range(train_count):
+            while True:
+                if capture_label(duration, device_index, label, idx, confirm=(idx == 0)):
+                    logger.info(f"Sleeping {train_delay} seconds ...")
+                    sleep(train_delay)
+                    break
+                else:
+                    logger.info("Sleeping 5 seconds ...")
+                    sleep(5)
 
     calibrate_from_templates(verbose=True)
     logger.info("Training + calibration finished.")

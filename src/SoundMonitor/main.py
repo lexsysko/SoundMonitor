@@ -93,10 +93,19 @@ def main() -> None:
     p_train = sub.add_parser("train", help="Record ON/OFF templates + auto-calibrate")
     p_train.add_argument("-d", "--device", type=int, default=None)
     p_train.add_argument("-t", "--duration", type=float, default=8.0)
+    p_train.add_argument(
+        "-c", "--count", type=int, default=None, help="by default used preconfigured values from settings"
+    )
+    p_train.add_argument(
+        "-s", "--sleep", type=int, default=None, help="by default used preconfigured values from settings"
+    )
+    p_train.add_argument("-m", "--mode", choices=("auto", "on", "off"), default="auto")
+    p_train.add_argument("--prune", action="store_true", help="Clearing all previous template files")
 
     sub.add_parser("calibrate", help="Re-compute threshold from existing templates")
     p_plot = sub.add_parser("plot", help="plot diagram from existing PSD on templates")
-    p_plot.add_argument("-f", "--filename", type=str, default="diagram.png")
+    p_plot.add_argument("-f", "--filename", type=str, default="diagram{}.png")
+    p_plot.add_argument("-i", "--idx", type=int, default=0, help="idx of templates to plot")
 
     p_det = sub.add_parser("detect", help="Live async detection → SQLite")
     p_det.add_argument("-d", "--device", type=int, default=None)
@@ -114,7 +123,13 @@ def main() -> None:
             list_input_devices()
         case "train":
             try:
-                train(device_index=args.device, duration=args.duration)
+                train(
+                    device_index=args.device,
+                    duration=args.duration,
+                    count=args.count,
+                    delay=args.sleep,
+                    prune=args.prune,
+                )
             except KeyboardInterrupt:
                 print()
                 logger.error("Interrupted.")
@@ -136,9 +151,12 @@ def main() -> None:
             except KeyboardInterrupt:
                 logger.error("Interrupted.")
         case "plot":
+            idx = args.idx
             psd_on, psd_off, freqs, tmpl_sr = load_templates()
-            save_path = DATA_PATH / args.filename
-            plot_psd_comparison(freqs=freqs, psd_on=psd_on, psd_off=psd_off, save_path=save_path)
+            save_path = DATA_PATH / args.filename.format(f"_{idx:03d}")
+            templates = {"on": psd_on[min(idx, len(psd_on))], "off": psd_off[min(idx, len(psd_off))]}
+
+            plot_psd_comparison(freqs=freqs, templates=templates, save_path=save_path)
 
 
 if __name__ == "__main__":

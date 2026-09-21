@@ -110,3 +110,16 @@ def save_template(
         path, freqs=freqs, psd=psd, sr=sr, duration=duration, label=label, created=time.strftime("%Y-%m-%d %H:%M:%S")
     )
     logger.info(f"  Saved template → {path}  (sr={sr})")
+
+
+def prune_templates(label, idx=None) -> int:
+
+    idx_str = "*" if idx is None else f"{idx:03d}"
+    count = 0
+    for file in TEMPLATE_DIR.glob(TEMPLATE_FILE_MAKS.format(label=label, idx=idx_str)):
+        try:
+            file.unlink()
+            count += 1
+        except (FileNotFoundError, OSError):
+            ...
+    return count

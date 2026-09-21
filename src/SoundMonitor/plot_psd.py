@@ -11,74 +11,48 @@ logger = logging.getLogger(__name__)
 
 def plot_psd_comparison(
     freqs: np.ndarray,
-    psd_on: np.ndarray,
-    psd_off: np.ndarray,
+    templates: dict[str, np.ndarray],
     psd_live: np.ndarray | None = None,
     title: str = "PSD Spectrum Comparison",
     save_path: Path | str | None = None,
 ):
     import matplotlib
 
-    # Set non-interactive backend BEFORE importing pyplot or using Figure
     matplotlib.use("Agg")
     from matplotlib.figure import Figure
 
-    # Create Figure directly (Thread-safe, bypasses Matplotlib GUI main-thread checks)
     fig = Figure(figsize=(10, 5))
     ax = fig.add_subplot(111)
 
-    # 1. Format current timestamp
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Determine window slicing
-    arrays = [freqs, psd_on, psd_off]
+    arrays = [freqs] + list(templates.values())
     if psd_live is not None:
         arrays.append(psd_live)
     n = min(len(arr) for arr in arrays)
     f = freqs[:n]
 
-    # Plot Templates
-    ax.plot(
-        f,
-        psd_on[:n],
-        label="ON Template",
-        color="crimson",
-        linewidth=2,
-        alpha=0.8,
-    )
-    ax.plot(
-        f,
-        psd_off[:n],
-        label="OFF Template",
-        color="dodgerblue",
-        linewidth=2,
-        alpha=0.8,
-    )
-    ax.fill_between(f, psd_on[:n], alpha=0.12, color="crimson")
-    ax.fill_between(f, psd_off[:n], alpha=0.12, color="dodgerblue")
+    # Plot each template
+    colors = {"on": "crimson", "off": "dodgerblue"}
+    for label, psd in templates.items():
+        psd = psd[:n]
+        ax.plot(f, psd, label=f"{label.upper()} Template", color=colors.get(label, None), linewidth=2, alpha=0.8)
+        ax.fill_between(f, psd, alpha=0.12, color=colors.get(label, "gray"))
+        if len(psd) > 0:
+            max_idx = np.argmax(psd)
+            ax.plot(
+                f[max_idx],
+                psd[max_idx],
+                "o",
+                color=colors.get(label, "gray"),
+                markersize=7,
+                label=f"{label.upper()} Max: {psd[max_idx]:.2f} @ {f[max_idx]:.1f}Hz",
+            )
 
-    # Mark ON Template Max Peak
-    max_idx_on = np.argmax(psd_on)
-    ax.plot(
-        f[max_idx_on],
-        psd_on[max_idx_on],
-        "o",
-        color="crimson",
-        markersize=7,
-        label=f"ON Max: {psd_on[max_idx_on]:.2f} @ {f[max_idx_on]:.1f}Hz",
-    )
-
-    # Plot Live Signal (if provided)
-    if psd_live is not None:
-        ax.plot(
-            f,
-            psd_live[:n],
-            label="Live Signal",
-            color="black",
-            linestyle="--",
-            linewidth=1.5,
-        )
-        # Mark ON Template Max Peak
+    # Plot live signal
+    if psd_live is not None and len(psd_live) > 0:
+        psd_live = psd_live[:n]
+        ax.plot(f, psd_live, label="Live Signal", color="black", linestyle="--", linewidth=1.5)
         max_idx_live = np.argmax(psd_live)
         ax.plot(
             f[max_idx_live],
@@ -95,13 +69,17 @@ def plot_psd_comparison(
     ax.set_xlabel("Frequency (Hz)", fontsize=10)
     ax.set_ylabel("Normalized Power", fontsize=10)
     ax.set_xlim(f[0], f[-1])
-    ax.set_ylim(-0.005, 1.05)
+    # Dynamic y-limits
+    ymin = min(np.min(psd[:n]) for psd in templates.values())
+    ymax = max(np.max(psd[:n]) for psd in templates.values())
+    if psd_live is not None:
+        ymin = min(ymin, np.min(psd_live[:n]))
+        ymax = max(ymax, np.max(psd_live[:n]))
+    ax.set_ylim(ymin - 0.05 * abs(ymin), ymax + 0.05 * abs(ymax))
     ax.grid(True, linestyle=":", alpha=0.6)
     ax.legend(loc="upper right", fontsize=8)
 
     fig.tight_layout()
-
-    # Save and cleanup explicitly
     save_path = save_path or "live.png"
     fig.savefig(save_path, dpi=150)
     logger.info(f"Saved figure to {save_path}")
