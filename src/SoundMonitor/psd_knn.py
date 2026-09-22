@@ -3,7 +3,7 @@ import numpy as np
 
 from SoundMonitor.normalizer import normalize_psd, get_concatenated_norm
 from SoundMonitor.numpy_normalizer import NumpyNormalizer, NumpyStandardScaler
-from SoundMonitor.settings import NORMALIZE_METHOD
+from SoundMonitor.settings import NORMALIZE_METHOD, THRESHOLD_ON_SIM
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ class PSD_KNN:
         self.y_train: np.ndarray | None = None
         self.global_norm: np.float64 | None = None
         self.MARGIN_POWER = 0.1
-        self.MIN_SCORE = 0.3
+        self.MIN_SCORE = THRESHOLD_ON_SIM
         # self.scaler = NumpyStandardScaler(with_mean=True, with_std=False)
         self.scaler = NumpyStandardScaler()
         self.normalizer = NumpyNormalizer(norm="l2")
@@ -114,7 +114,7 @@ class PSD_KNN:
             f"{winning_score=} {weights=} {on_weight=} {off_weight=} {off_magring=} {mean_label_1=}  {mean_label_0=}"
         )
 
-        if mean_label_1 < self.MIN_SCORE:
+        if np.isnan(mean_label_1) or mean_label_1 < self.MIN_SCORE:
             state = 0
         else:
             state = 1 if on_weight > off_weight - off_magring else 0
