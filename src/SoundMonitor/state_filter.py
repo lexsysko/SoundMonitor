@@ -129,8 +129,9 @@ class StateFilter:
         Оновлює історію та повертає відфільтрований стан.
         """
         if score < self.thresh.min_score:
-            logger.debug(f"Ignored low-confidence frame: {raw_state=} with {score=:.2f} < {self.thresh.min_score}")
-            return self.current_state
+            # logger.debug(f"Ignored low-confidence frame: {raw_state=} with {score=:.2f} < {self.thresh.min_score}")
+            # return self.current_state
+            raw_state = int(not raw_state)
 
         self.history.append(raw_state)
 

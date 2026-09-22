@@ -101,6 +101,7 @@ def main() -> None:
     )
     p_train.add_argument("-m", "--mode", choices=("auto", "on", "off"), default="auto")
     p_train.add_argument("--prune", action="store_true", help="Clearing all previous template files")
+    p_train.add_argument("--nobeep", action="store_true", help="Disable beep sound before start record")
 
     sub.add_parser("calibrate", help="Re-compute threshold from existing templates")
     p_plot = sub.add_parser("plot", help="plot diagram from existing PSD on templates")
@@ -128,7 +129,9 @@ def main() -> None:
                     duration=args.duration,
                     count=args.count,
                     delay=args.sleep,
+                    mode=args.mode,
                     prune=args.prune,
+                    beep=not args.nobeep,
                 )
             except KeyboardInterrupt:
                 print()
@@ -154,7 +157,7 @@ def main() -> None:
             idx = args.idx
             psd_on, psd_off, freqs, tmpl_sr = load_templates()
             save_path = DATA_PATH / args.filename.format(f"_{idx:03d}")
-            templates = {"on": psd_on[min(idx, len(psd_on))], "off": psd_off[min(idx, len(psd_off))]}
+            templates = {"on": psd_on[min(idx, len(psd_on) - 1)], "off": psd_off[min(idx, len(psd_off) - 1)]}
 
             plot_psd_comparison(freqs=freqs, templates=templates, save_path=save_path)
 

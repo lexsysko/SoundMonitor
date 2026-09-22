@@ -4,7 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from SoundMonitor import __version__
-from SoundMonitor.enums import AnalyzeMethods
+from SoundMonitor.enums import AnalyzeMethods, NormalizeMethod
 
 BASE_PATH = Path(__file__).parent.parent.parent
 
@@ -39,8 +39,8 @@ BATCH_FLUSH_DB_TIMEOUT: int = int(environ.get("BATCH_FLUSH_DB_TIMEOUT", 2))
 PREFERRED_RATES = [44100, 48000, 16000]
 CHANNELS = 1
 CHUNK = 1024
-WELCH_WINDOW_SEC = 0.256
-FREQ_RANGE = (80.0, 500.0)
+WELCH_WINDOW_SEC = 0.512
+FREQ_RANGE = (60.0, 350.0)
 DEFAULT_THRESHOLD = 0.60
 SMOOTH_WINDOWS = int(environ.get("SMOOTH_WINDOWS", 30))
 MIN_CONFIRM = int(SMOOTH_WINDOWS * 0.85)  # how many votes needed to change state (out of 30)
@@ -53,7 +53,12 @@ DETECT_INTERVAL_SEC = 1.2
 BUFFER_SEC = 6.0
 PERIODIC_WRITE_TIME = int(environ.get("PERIODIC_WRITE_TIME", 120))
 SILENCE_THRESHOLD = 1e-3
-NORMALIZE_LOG: bool = True
+NORMALIZE_LOG: bool = False
+try:
+    NORMALIZE_METHOD: NormalizeMethod = NormalizeMethod(environ.get("NORMALIZE_METHOD", "MAX").lower())
+except ValueError as e:
+    raise ValueError(str(e))
+
 
 FILTER_WINDOW_SIZE = int(environ.get("FILTER_WINDOW_SIZE", 30))
 FILTER_THRESH_ON_DENSITY: float = float(environ.get("FILTER_THRESH_ON_DENSITY", 0.8))
@@ -65,6 +70,8 @@ FILTER_THRESH_MIN_SCORE: float = float(environ.get("FILTER_THRESH_MIN_SCORE", 0.
 FILTER_METHOD: str = environ.get("FILTER_METHOD", "WEIGHTED_DENSITY")
 if FILTER_METHOD.lower() not in AnalyzeMethods.__members__.values():
     raise ValueError(f"{FILTER_METHOD} is not a valid AnalyzeMethods")
+
+
 TRAIN_DURATION = 8.0
 
 TEMPLATE_DIR = DATA_PATH / "templates"

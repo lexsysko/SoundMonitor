@@ -4,7 +4,8 @@ import numpy as np
 import time
 
 from SoundMonitor.analizer import spectral_distance
-from SoundMonitor.settings import TEMPLATE_DIR, THRESHOLD_FILE
+from SoundMonitor.normalizer import get_concatenated_norm, normalize_psd
+from SoundMonitor.settings import TEMPLATE_DIR, THRESHOLD_FILE, NORMALIZE_METHOD
 from SoundMonitor.templates import load_templates
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,14 @@ logger = logging.getLogger(__name__)
 def calibrate_from_templates(verbose: bool = True) -> dict:
     psd_on, psd_off, freqs, tmpl_sr = load_templates()
 
-    # 1. Calculate pairwise spectral distances (Cosine Distance: 0 = identical, 1 = orthogonal)
+    # Compute global normalization value across all templates
+    normalize_value = get_concatenated_norm(psd_on, psd_off, NORMALIZE_METHOD)
+
+    # Normalize each template individually, but with the same global norm
+    psd_on = [normalize_psd(item, method=NORMALIZE_METHOD, normalize_value=normalize_value)[0] for item in psd_on]
+    psd_off = [normalize_psd(item, method=NORMALIZE_METHOD, normalize_value=normalize_value)[0] for item in psd_off]
+
+    # 1. Calculate pairwise spectral distances
     d_on_on = [spectral_distance(a, b) for i, a in enumerate(psd_on) for j, b in enumerate(psd_on) if i < j]
     d_off_off = [spectral_distance(a, b) for i, a in enumerate(psd_off) for j, b in enumerate(psd_off) if i < j]
     d_on_off = [spectral_distance(a, b) for a in psd_on for b in psd_off]

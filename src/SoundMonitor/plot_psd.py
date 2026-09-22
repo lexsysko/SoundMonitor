@@ -5,6 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
+from SoundMonitor.normalizer import normalize_psd, get_concatenated_norm
+from SoundMonitor.settings import NORMALIZE_METHOD
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,7 @@ def plot_psd_comparison(
     psd_live: np.ndarray | None = None,
     title: str = "PSD Spectrum Comparison",
     save_path: Path | str | None = None,
+    normalize_value: float | None = None,
 ):
     import matplotlib
 
@@ -32,10 +35,27 @@ def plot_psd_comparison(
     n = min(len(arr) for arr in arrays)
     f = freqs[:n]
 
+    normalize_value = normalize_value or get_concatenated_norm(*templates.values(), method=NORMALIZE_METHOD)
+    # n_on, success_on, normalize_value_on = normalize_psd(
+    #     templates["on"], method=NORMALIZE_METHOD, normalize_value=normalize_value
+    # )
+    # n_off, success_off, normalize_value_off = normalize_psd(templates["off"], method=NORMALIZE_METHOD)
+    # logger.debug(
+    #     f"{NORMALIZE_METHOD.value=} {normalize_value=} {normalize_value_on=} {success_on=}  {normalize_value_off=} {success_off=} "
+    # )
+    # logger.debug(f"{templates["on"].max()=} {templates["on"].min()=} ")
+    # logger.debug(f"{templates["off"].max()=} {templates["off"].min()=} ")
+    # logger.debug(f"{n_on.max()=} {n_on.min()=} ")
+    # logger.debug(f"{n_off.max()=} {n_off.min()=} ")
+
     # Plot each template
     colors = {"on": "crimson", "off": "dodgerblue"}
+    y_min = 0
+    y_max = 0
     for label, psd in templates.items():
-        psd = psd[:n]
+        psd = normalize_psd(psd[:n], normalize_value=normalize_value, method=NORMALIZE_METHOD)[0]
+        y_min = min(psd.min(), y_min)
+        y_max = max(psd.max(), y_max)
         ax.plot(f, psd, label=f"{label.upper()} Template", color=colors.get(label, None), linewidth=2, alpha=0.8)
         ax.fill_between(f, psd, alpha=0.12, color=colors.get(label, "gray"))
         if len(psd) > 0:
@@ -51,7 +71,7 @@ def plot_psd_comparison(
 
     # Plot live signal
     if psd_live is not None and len(psd_live) > 0:
-        psd_live = psd_live[:n]
+        psd_live = normalize_psd(psd_live[:n], normalize_value=normalize_value, method=NORMALIZE_METHOD)[0]
         ax.plot(f, psd_live, label="Live Signal", color="black", linestyle="--", linewidth=1.5)
         max_idx_live = np.argmax(psd_live)
         ax.plot(
@@ -70,12 +90,11 @@ def plot_psd_comparison(
     ax.set_ylabel("Normalized Power", fontsize=10)
     ax.set_xlim(f[0], f[-1])
     # Dynamic y-limits
-    ymin = min(np.min(psd[:n]) for psd in templates.values())
-    ymax = max(np.max(psd[:n]) for psd in templates.values())
-    if psd_live is not None:
-        ymin = min(ymin, np.min(psd_live[:n]))
-        ymax = max(ymax, np.max(psd_live[:n]))
-    ax.set_ylim(ymin - 0.05 * abs(ymin), ymax + 0.05 * abs(ymax))
+    if psd_live is not None and len(psd_live) > 0:
+        y_min = min(y_min, np.min(psd_live[:n]))
+        y_max = max(y_max, np.max(psd_live[:n]))
+    # logger.debug(f"{y_min=} {y_max=}")
+    ax.set_ylim(y_min - 0.05 * abs(y_min), y_max + 0.05 * abs(y_max))
     ax.grid(True, linestyle=":", alpha=0.6)
     ax.legend(loc="upper right", fontsize=8)
 

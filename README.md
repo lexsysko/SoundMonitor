@@ -22,6 +22,82 @@ Simple mixer control 'Mic',0
 
 ## TRAINED DATA on DOCKER
 
+.env
+
+```dotenv
+WAITER=1
+```
+
+WAITER=1
+
+### Train
+
+```bash
+docker compose exec -it snd-monitor bash
+root@f83591478a80:/app# cd src/SoundMonitor/
+root@f83591478a80:/app/src/SoundMonitor# python main.py train --prune
+Available input devices:
+  [1] HD-Audio Generic: ALC3227 Analog (hw:1,0)  (max in=2, default rate=44100)
+
+2026-09-21 23:21:24 [INFO] SoundMonitor.train: 
+============================================================
+TRAINING MODE: auto
+Each recording lasts 8 seconds.
+Will try sample rates: [44100, 48000, 16000]
+============================================================
+2026-09-21 23:21:24 [INFO] SoundMonitor.train: 
+============================================================
+  Compressor ON. Total templates: (30) with delay 10 seconds
+ Pruned total: 30 previous templates for label: on
+
+
+>>> Prepare 'on [0]' state, then press Enter to start recording…
+2026-09-21 23:26:05 [INFO] SoundMonitor.audio_device:   Audio opened at 44100 Hz
+2026-09-21 23:26:05 [INFO] SoundMonitor.audio_device:   Recording 8.0s @ 44100 Hz …
+2026-09-21 23:26:16 [INFO] SoundMonitor.audio_device:   Recording done
+2026-09-21 23:26:17 [INFO] SoundMonitor.templates:   Saved template → /app/data/templates/template_on_000
+.npz  (sr=44100)
+2026-09-21 23:26:17 [INFO] SoundMonitor.train:   Top peaks (Hz) from 108: 97, 94, 100, 92, 102
+2026-09-21 23:26:17 [INFO] SoundMonitor.train: Sleeping 10 seconds ...
+
+...
+
+============================================================
+  Compressor OFF. Total templates: (5) with delay 30 seconds
+ Pruned total: 5 previous templates for label: off
+
+>>> Prepare 'off [0]' state, then press Enter to start recording…
+2026-09-21 23:35:35 [INFO] SoundMonitor.audio_device:   Audio opened at 44100 Hz
+2026-09-21 23:35:35 [INFO] SoundMonitor.audio_device:   Audio opened at 44100 Hz
+2026-09-21 23:35:35 [INFO] SoundMonitor.audio_device:   Recording 8.0s @ 44100 Hz …
+2026-09-21 23:35:45 [INFO] SoundMonitor.audio_device:   Recording done
+2026-09-21 23:35:45 [INFO] SoundMonitor.templates:   Saved template → /app/data/templates/template_off_000.npz  (sr=44100)
+2026-09-21 23:35:45 [INFO] SoundMonitor.train:   Top peaks (Hz) from 108: 92, 226, 89, 94, 285
+2026-09-21 23:35:45 [INFO] SoundMonitor.train: Sleeping 30 seconds ...
+...
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate: ============================================================
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate: AUTOMATIC THRESHOLD CALIBRATION
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate: ============================================================
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate:   Spectral Distance ON ↔ OFF : 0.9973
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate:   Intra-class Distance       : 0.9836
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate:   Safety Margin              : 0.05
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate:   Confidence Gate (min_score): 0.550
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate:   Hysteresis ON / OFF        : 0.70 / 0.20
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate:   Template Sample Rate       : 44100 Hz
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate:   Saved to                   : /app/data/templates/threshold.json
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate:   ✓  Good separation between ON and OFF templates.
+2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate: ============================================================
+```
+
+### Test detection
+
+```bash
+docker compose exec -it snd-monitor bash
+root@f83591478a80:/app# cd src/SoundMonitor/
+root@f83591478a80:/app/src/SoundMonitor# python main.py --loglevel=DEBUG detect --plot 
+
+```
+
 ### BACKUP
 
 - DOCKER COMPOSE

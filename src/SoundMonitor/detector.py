@@ -6,7 +6,7 @@ import numpy as np
 import time
 from dataclasses import dataclass
 
-from SoundMonitor.analizer import compute_psd
+from SoundMonitor.analizer import compute_psd, predict_psd
 from SoundMonitor.async_mic import AsyncMic
 from SoundMonitor.plot_psd import plot_psd_comparison
 from SoundMonitor.psd_knn import PSD_KNN
@@ -19,6 +19,7 @@ from SoundMonitor.settings import (
     PLOT_LIVE_FILENAME,
     NORMALIZE_LOG,
     FILTER_METHOD,
+    NORMALIZE_METHOD,
 )
 from SoundMonitor.state_filter import StateFilter
 
@@ -59,8 +60,11 @@ async def detection_loop(
     psd_knn = PSD_KNN()
     state_filter = StateFilter(method=FILTER_METHOD)
     logger.info(f"  Starting learning psd_knn")
-    psd_knn.fit(on_templates=psd_on, off_templates=psd_off, normalize=False, normalize_log=NORMALIZE_LOG)
-    logger.info(f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f}, {plot=} (Ctrl+C to stop)")
+    psd_knn.fit(on_templates=psd_on, off_templates=psd_off)
+    logger.info(
+        f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f}, "
+        f"{plot=}, Normalize method: {str(NORMALIZE_METHOD)}. (Ctrl+C to stop)"
+    )
     iteration = 0
     try:
         while True:
@@ -70,9 +74,14 @@ async def detection_loop(
                 logger.warning(f"Recording failed: audio device is short {len(audio)} < {min_samples=}")
                 continue
 
-            freq, psd, success = await asyncio.to_thread(
-                compute_psd, audio, sr=mic.sr, normalize=True, normalize_log=NORMALIZE_LOG
+            freq, psd_live, success, is_on, score = await asyncio.to_thread(
+                predict_psd,
+                audio=audio,
+                psd_knn=psd_knn,
+                sr=mic.sr,
             )
+
+            # freq, psd, success = await asyncio.to_thread(compute_psd, audio, sr=mic.sr, normalize=False)
 
             logger.debug(f"{success=} {len(freq)=}")
             if not success:
@@ -81,7 +90,7 @@ async def detection_loop(
                 continue
 
             # print(f"{psd=}")
-            is_on, score = psd_knn.predict(psd)
+            # is_on, score = psd_knn.predict(psd, normalize=True)
             logger.debug(f"{is_on=} {score=}")
 
             smoothed = bool(state_filter.update(is_on, score))
@@ -160,8 +169,9 @@ async def detection_loop(
                             plot_psd_comparison,
                             freqs=freq,
                             templates=templates,
-                            psd_live=psd,
+                            psd_live=psd_live,
                             save_path=DATA_PATH / PLOT_LIVE_FILENAME,
+                            normalize_value=psd_knn.global_norm,
                         )
                     )
 

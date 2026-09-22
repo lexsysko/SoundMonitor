@@ -1,3 +1,5 @@
+from time import sleep
+
 import logging
 import numpy as np
 from typing import Tuple
@@ -95,3 +97,49 @@ def record_seconds(
     audio = audio.astype(np.float32) / 32768.0
 
     return audio, sr
+
+
+def play_beep(
+    melody: list[int] | None = None,
+    duration: float = 0.2,
+    pause: float = 0.3,
+    sample_rate=None,
+    device_index: int | None = None,
+):
+    melody = melody or [1000, 2000, 1000, 1500]
+    p = pyaudio.PyAudio()
+
+    rates = (sample_rate,) if sample_rate else PREFERRED_RATES
+
+    # Open output stream
+    for rate in rates:
+        kwargs = dict(format=pyaudio.paInt16, channels=1, rate=rate, output=True)
+        if device_index is not None:
+            kwargs["input_device_index"] = device_index
+        stream = p.open(**kwargs)
+        logger.info("Beep sound opened at {rate} Hz")
+        try:
+            for frequency in melody:
+                # Generate sine wave
+                t = np.linspace(0, duration, int(rate * duration), False)
+                tone = np.sin(frequency * 2 * np.pi * t)
+
+                # Convert to 16-bit PCM
+                audio = (tone * 32767).astype(np.int16).tobytes()
+
+                stream.write(audio)
+                sleep(pause)
+            stream.stop_stream()
+            stream.close()
+            logger.info(f"  Audio opened at {rate} Hz")
+            break
+
+        except Exception as e:
+            last_err = e
+            logger.error(f"  Rate {rate} Hz not accepted: {e}")
+
+    p.terminate()
+
+
+if __name__ == "__main__":
+    play_beep()

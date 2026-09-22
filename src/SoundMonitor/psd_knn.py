@@ -1,7 +1,8 @@
 import logging
-
 import numpy as np
 
+from SoundMonitor.normalizer import normalize_psd, get_concatenated_norm
+from SoundMonitor.settings import NORMALIZE_METHOD
 
 logger = logging.getLogger(__name__)
 
@@ -11,33 +12,35 @@ class PSD_KNN:
         self.k = k
         self.X_train: np.ndarray | None = None
         self.y_train: np.ndarray | None = None
+        self.global_norm: np.float64 | None = None
+        self.MARGIN_POWER = 0.1
+        self.MIN_SCORE = 0.4
+
+    def normalize(self, psd: np.ndarray) -> np.ndarray:
+        psd_norm, _, self.global_norm = normalize_psd(psd, NORMALIZE_METHOD)
+        return psd_norm
 
     @staticmethod
-    def normalize(psd: np.ndarray, normalize_log: bool = True) -> np.ndarray:
-        if normalize_log:
-            psd = 10 * np.log10(psd + 1e-12)
-        norm = np.linalg.norm(psd, axis=-1, keepdims=True)
-        return psd / norm
+    def enforce_unit_length(x: np.ndarray) -> np.ndarray:
+        return x / (np.linalg.norm(x) + 1e-12)
 
     def fit(
         self,
         off_templates: list[np.ndarray],
         on_templates: list[np.ndarray],
-        normalize: bool = False,
-        normalize_log: bool = False,
+        normalize: bool = True,
     ) -> None:
         """Store labeled templates for states: 0 - OFF, 1 - ON"""
         X = np.vstack([off_templates, on_templates])
 
-        self.X_train = self.normalize(X, normalize_log) if normalize else X
-
+        X_train = self.normalize(X) if normalize else X
+        self.X_train = X_train / (np.linalg.norm(X_train, axis=1, keepdims=True) + 1e-12)
         self.y_train = np.array([0] * len(off_templates) + [1] * len(on_templates))
 
     def predict(
         self,
         psd: np.ndarray,
-        normalize: bool = False,
-        normalize_log: bool = True,
+        normalize: bool = True,
     ) -> tuple[int, float]:
         """
         :return:
@@ -45,21 +48,30 @@ class PSD_KNN:
         - score: average likes (Cosine Similarity)  winner class [0.0...1.0]
         """
         # 1. Cosine similarity for all templates (value -1.0 ... 1.0)
-        psd_norm = self.normalize(psd, normalize_log) if normalize else psd
+        psd_norm = psd / self.global_norm if (normalize and self.global_norm is not None) else psd
+        psd_norm = self.enforce_unit_length(psd_norm)
+        print("predict psd_norm_max", psd_norm.max())
+        print("predict psd_norm_min", psd_norm.min())
+        print("predict self.X_train_max", self.X_train.max())
+        print("predict self.X_train_min", self.X_train.min())
+
         # logger.debug("psd_norm", psd_norm)
         # logger.debug("self.X_train", self.X_train)
         # logger.debug("X_train shape:", self.X_train.shape)
         # logger.debug("psd_norm shape:", psd_norm.shape)
 
+        # enforce unit length normalization regardless of training method
+
         try:
             # similarities = np.dot(self.X_train, psd_norm)
-            similarities = self.X_train @ psd_norm.ravel()
+            # similarities = self.X_train @ psd_norm.ravel()
             # similarities = self.X_train @ psd_norm
+            similarities = self.X_train @ psd_norm
         except ValueError as e:
             logger.error(f"Shape mismatch: X_train {self.X_train.shape}, psd {psd_norm.shape}")
             return 0, 0.0  # or some safe fallback
 
-        # print("similarities", similarities)
+        print("similarities", similarities)
 
         # 2. find top KNN
         top_k_indices = np.argsort(similarities)[-self.k :]
@@ -70,14 +82,18 @@ class PSD_KNN:
         print("top_k_labels", top_k_labels)
         print("top_k_sims", top_k_sims)
 
-        # 3. detect Winner
-        on_count = np.sum(top_k_labels)
-        state = 1 if on_count > (self.k / 2) else 0
+        # Weighted vote
+        weights = top_k_sims / top_k_sims.sum()
+        on_weight = weights[top_k_labels == 1].sum()
+        off_weight = weights[top_k_labels == 0].sum()
 
-        print("on_count", on_count)
+        off_magring = self.MARGIN_POWER * (on_weight + off_weight)
 
-        # 4. average likes only for winners
-        winning_mask = top_k_labels == state
-        winning_score = float(np.mean(top_k_sims[winning_mask]))
+        winning_score = float(max(on_weight, off_weight))
+
+        if winning_score < self.MIN_SCORE:
+            state = 0
+        else:
+            state = 1 if on_weight > off_weight - off_magring else 0
 
         return state, winning_score

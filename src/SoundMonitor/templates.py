@@ -9,7 +9,7 @@ import sys
 import json
 import numpy as np
 
-
+from SoundMonitor.enums import NormalizeMethod
 from SoundMonitor.settings import (
     THRESHOLD_FILE,
     DEFAULT_THRESHOLD,
@@ -103,11 +103,21 @@ def save_template(
     duration: float,
     label="on",
     idx=0,
+    normalize: bool = True,
+    normalize_method: NormalizeMethod = NormalizeMethod.NONE,
 ):
     idx_str = f"{idx:03d}"
-    path = TEMPLATE_DIR / TEMPLATE_FILE_MAKS.format(label=label, idx=idx_str)
+    path = TEMPLATE_DIR / TEMPLATE_FILE_MAKS.format(label=label.lower(), idx=idx_str)
     np.savez_compressed(
-        path, freqs=freqs, psd=psd, sr=sr, duration=duration, label=label, created=time.strftime("%Y-%m-%d %H:%M:%S")
+        path,
+        freqs=freqs,
+        psd=psd,
+        sr=sr,
+        duration=duration,
+        label=label,
+        normalize=int(normalize),
+        normalize_method=str(normalize_method),
+        created=time.strftime("%Y-%m-%d %H:%M:%S"),
     )
     logger.info(f"  Saved template → {path}  (sr={sr})")
 
@@ -116,7 +126,7 @@ def prune_templates(label, idx=None) -> int:
 
     idx_str = "*" if idx is None else f"{idx:03d}"
     count = 0
-    for file in TEMPLATE_DIR.glob(TEMPLATE_FILE_MAKS.format(label=label, idx=idx_str)):
+    for file in TEMPLATE_DIR.glob(TEMPLATE_FILE_MAKS.format(label=label.lower(), idx=idx_str)):
         try:
             file.unlink()
             count += 1

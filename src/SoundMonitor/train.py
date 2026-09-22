@@ -1,11 +1,11 @@
-from time import sleep
-
 import logging
 import numpy as np
+from time import sleep
 
 from SoundMonitor.analizer import compute_psd
-from SoundMonitor.audio_device import list_input_devices, record_seconds
+from SoundMonitor.audio_device import list_input_devices, record_seconds, play_beep
 from SoundMonitor.calibrate import calibrate_from_templates
+from SoundMonitor.enums import NormalizeMethod
 from SoundMonitor.settings import (
     MIN_RECORD_SEC,
     PREFERRED_RATES,
@@ -13,27 +13,40 @@ from SoundMonitor.settings import (
     TEMPLATE_COUNTERS_DELAY_SEC,
     TEMPLATE_COUNTERS,
     TEMPLATE_LABELS,
-    NORMALIZE_LOG,
+    NORMALIZE_METHOD,
 )
 from SoundMonitor.templates import save_template, prune_templates
 
 logger = logging.getLogger(__name__)
 
 
-def capture_label(duration, device_index, label: str, idx, confirm: bool = True) -> bool:
+def capture_label(
+    duration, device_index, label: str, idx, confirm: bool = True, normalize: bool = False, beep: bool = False
+) -> bool:
     if confirm:
         input(f"\n>>> Prepare '{label} [{idx}]' state, then press Enter to start recording…")
     else:
-        logger.info(f"Start recording for '{label} [{idx}]' ...")
+        logger.info(f"Start recording for '{label} [{idx}]' {normalize=}...")
+    if beep:
+        play_beep()
     audio, sr = record_seconds(duration, device_index)
     if len(audio) < sr * MIN_RECORD_SEC:
         logger.warning("Recording too short – try again.")
         return False
-    freqs, psd, success = compute_psd(audio, sr=sr, normalize=True, normalize_log=NORMALIZE_LOG)
+    freqs, psd, success = compute_psd(audio, sr=sr, normalize=normalize)
     if not success:
         logger.warning("Recording may be muted, try again.")
         return False
-    save_template(freqs=freqs, psd=psd, sr=sr, duration=duration, label=label, idx=idx)
+    save_template(
+        freqs=freqs,
+        psd=psd,
+        sr=sr,
+        duration=duration,
+        label=label,
+        idx=idx,
+        normalize=normalize,
+        normalize_method=NORMALIZE_METHOD if normalize else NormalizeMethod.NONE,
+    )
     peaks = freqs[np.argsort(psd)[::-1][:5]]
     logger.info(f"  Top peaks (Hz) from {len(freqs)}: {', '.join(f'{p:.0f}' for p in peaks)}")
     return True
@@ -42,21 +55,22 @@ def capture_label(duration, device_index, label: str, idx, confirm: bool = True)
 def train(
     device_index: int | None = None,
     duration: float = TRAIN_DURATION,
-    train_mode: str = "auto",
+    mode: str = "auto",
     count: int | None = None,
     delay: int | None = None,
     prune: bool = False,
+    beep: bool = True,
 ) -> None:
     list_input_devices()
 
     buff = "\n" + "=" * 60
-    buff += f"\nTRAINING MODE: {train_mode}"
+    buff += f"\nTRAINING MODE: {mode}"
     buff += f"\nEach recording lasts {duration:.0f} seconds."
     buff += f"\nWill try sample rates: {PREFERRED_RATES}\n"
     buff += "=" * 60
     logger.info(buff)
 
-    match train_mode:
+    match mode:
         case "on":
             labels = ("on",)
         case "off":
@@ -75,9 +89,10 @@ def train(
         logger.info(buff)
         for idx in range(train_count):
             while True:
-                if capture_label(duration, device_index, label, idx, confirm=(idx == 0)):
+                if capture_label(duration, device_index, label, idx, confirm=(idx == 0), beep=beep):
                     logger.info(f"Sleeping {train_delay} seconds ...")
-                    sleep(train_delay)
+                    if idx < train_count - 1:
+                        sleep(train_delay)
                     break
                 else:
                     logger.info("Sleeping 5 seconds ...")

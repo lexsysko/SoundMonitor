@@ -2,7 +2,9 @@ import logging
 import numpy as np
 from scipy.signal import butter, sosfiltfilt, welch
 
-from SoundMonitor.settings import WELCH_WINDOW_SEC, get_effective_sr, FREQ_RANGE
+from SoundMonitor.normalizer import normalize_psd
+from SoundMonitor.psd_knn import PSD_KNN
+from SoundMonitor.settings import WELCH_WINDOW_SEC, get_effective_sr, FREQ_RANGE, NORMALIZE_METHOD
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,7 @@ def nperseg_for(sr: int) -> int:
 
 
 def compute_psd(
-    audio: np.ndarray, sr: int | None = None, normalize: bool = True, normalize_log: bool = False
+    audio: np.ndarray, sr: int | None = None, normalize: bool = True, normalize_value: float | None = None
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     if sr is None:
         sr = get_effective_sr()
@@ -37,7 +39,7 @@ def compute_psd(
 
     freqs, psd = welch(audio, fs=sr, nperseg=nperseg, scaling="density", average="median")
 
-    logger.debug(f"compute_psd welch {len(psd)=} {len(freqs)=}")
+    logger.debug(f"compute_psd welch {len(psd)=} {len(freqs)=} {nperseg=}")
 
     mask = (freqs >= FREQ_RANGE[0]) & (freqs <= FREQ_RANGE[1])
     freqs, psd = freqs[mask], psd[mask]
@@ -47,32 +49,18 @@ def compute_psd(
     if not normalize:
         return freqs, psd.astype(np.float32), True
 
-    if not normalize_log:
-        peak_val = psd.max()
-        if peak_val < 1e-7:  # tune to your system
-            return freqs, np.zeros_like(psd), False
-        psd_norm = np.linalg.norm(psd)
-        return freqs, psd_norm.astype(np.float32), True
+    return freqs, *normalize_psd(psd=psd, method=NORMALIZE_METHOD, normalize_value=normalize_value)[:2]
 
-    # Normalize with log
 
-    psd_log = 10 * np.log10(psd + 1e-12)
+def predict_psd(audio: np.ndarray, psd_knn: PSD_KNN, sr: int | None = None):
+    freq, psd_live, success = compute_psd(audio, sr=sr, normalize=False, normalize_value=psd_knn.global_norm)
 
-    if psd_log.max() - psd_log.min() > 3:  # dynamic range check
-        norm = np.linalg.norm(psd_log)
-        if norm > 0:
-            psd_norm = psd_log / norm
-            success = True
-        else:
-            psd_norm = np.zeros_like(psd_log)
-            success = False
-    else:
-        psd_norm = np.zeros_like(psd_log)
-        success = False
+    if not success:
+        return freq, psd_live, success, 0, 0
 
-    # logger.debug(f"compute_psd return {len(psd_norm)=} {len(freqs)=}")
+    is_on, score = psd_knn.predict(psd_live, normalize=True)
 
-    return freqs, psd_norm.astype(np.float32), success
+    return freq, psd_live, success, is_on, score
 
 
 def spectral_distance(psd_a: np.ndarray, psd_b: np.ndarray) -> float:
