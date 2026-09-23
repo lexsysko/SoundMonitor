@@ -49,7 +49,7 @@ class StateFilter:
         self.weights_history_sum = self.weights_history.sum()
         self.thresh: StateFilterThresh = thresh or StateFilterThresh()
         if not self.thresh.streak:
-            self.thresh.streak = (window_size * 100) // FILTER_THRESH_STREAK_PERC
+            self.thresh.streak = int((window_size / 100) * int(FILTER_THRESH_STREAK_PERC))
         self.current_state = 0  # 0 = OFF, 1 = ON
         self.method: AnalyzeMethods = AnalyzeMethods(method.lower())
         logger.debug(self.method)
@@ -128,10 +128,10 @@ class StateFilter:
         """
         Оновлює історію та повертає відфільтрований стан.
         """
-        if score < self.thresh.min_score:
-            # logger.debug(f"Ignored low-confidence frame: {raw_state=} with {score=:.2f} < {self.thresh.min_score}")
-            # return self.current_state
-            raw_state = int(not raw_state)
+        # if score < self.thresh.min_score:
+        #     # logger.debug(f"Ignored low-confidence frame: {raw_state=} with {score=:.2f} < {self.thresh.min_score}")
+        #     # return self.current_state
+        #     raw_state = int(not raw_state)
 
         self.history.append(raw_state)
 
@@ -157,8 +157,9 @@ class StateFilter:
                     self.current_state = 1
                 elif self.current_state == 1 and last_val == 0 and streak >= self.thresh.streak:
                     self.current_state = 0
-
-                logger.debug(f"{self.method.name} : {score=:.2f}, state={self.current_state}, {last_val=}, {streak=}")
+                logger.debug(
+                    f"{self.method.name} : {score=:.2f}, state={self.current_state}, {last_val=}, {streak=} {self.thresh.streak=}"
+                )
                 return self.current_state
 
             case AnalyzeMethods.STABILITY_STATE:

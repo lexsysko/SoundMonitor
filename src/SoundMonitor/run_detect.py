@@ -18,7 +18,7 @@ async def run_detect(
     window_sec: float = ANALYSIS_WINDOW_SEC,
     plot: bool = False,
 ) -> None:
-    psd_on, psd_off, _freqs, tmpl_sr = load_templates()
+    psd_on, psd_off, freq, tmpl_sr = load_templates()
     thr = load_threshold(override=threshold_override)
 
     logger.info("=" * 60)
@@ -61,6 +61,7 @@ async def run_detect(
             mic=mic,
             psd_on=psd_on,
             psd_off=psd_off,
+            freq=freq,
             threshold=thr,
             result_queue=result_queue,
             window_sec=window_sec,

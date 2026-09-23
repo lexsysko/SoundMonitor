@@ -39,14 +39,18 @@ BATCH_FLUSH_DB_TIMEOUT: int = int(environ.get("BATCH_FLUSH_DB_TIMEOUT", 2))
 PREFERRED_RATES = [44100, 48000, 16000]
 CHANNELS = 1
 CHUNK = 1024
-WELCH_WINDOW_SEC = 0.512
-FREQ_RANGE = (60.0, 350.0)
+WELCH_WINDOW_SEC = 0.64
+
+FREQ_RANGE = (float(environ.get("FREQ_RANGE_LOW", "90")), float(environ.get("FREQ_RANGE_HIGH", "120")))
+CROP_LIVE_FREQ_RANGE: bool = environ.get("CROP_LIVE_FREQ_RANGE", "False")[0].lower() == "t"
+
 DEFAULT_THRESHOLD = 0.60
 SMOOTH_WINDOWS = int(environ.get("SMOOTH_WINDOWS", 30))
 MIN_CONFIRM = int(SMOOTH_WINDOWS * 0.85)  # how many votes needed to change state (out of 30)
 THRESHOLD_ON = float(environ.get("THRESHOLD_ON", 0.9))
-THRESHOLD_ON_SIM = float(environ.get("THRESHOLD_ON_SIM", 0.3))
 THRESHOLD_OFF = float(environ.get("THRESHOLD_OFF", 1.8))
+THRESHOLD_ON_POWER_ALPHA = float(environ.get("THRESHOLD_ON_POWER_ALPHA", 0.3))
+THRESHOLD_ON_SIM = float(environ.get("THRESHOLD_ON_SIM", 0.45))
 MIN_RECORD_SEC = 3.0
 SAFETY_MARGIN = 0.18
 ANALYSIS_WINDOW_SEC = 3.0
@@ -63,10 +67,10 @@ except ValueError as e:
 
 FILTER_WINDOW_SIZE = int(environ.get("FILTER_WINDOW_SIZE", 30))
 FILTER_THRESH_ON_DENSITY: float = float(environ.get("FILTER_THRESH_ON_DENSITY", 0.8))
-FILTER_THRESH_OFF_DENSITY: float = float(environ.get("FILTER_THRESH_OFF_DENSITY", 0.3))
+FILTER_THRESH_OFF_DENSITY: float = float(environ.get("FILTER_THRESH_OFF_DENSITY", 0.7))
 FILTER_THRESH_STREAK_PERC: int = int(environ.get("FILTER_THRESH_STREAK_PERC", 50))
-FILTER_THRESH_WEIGHTS_ON_DENSITY: float = float(environ.get("FILTER_THRESH_WEIGHTS_ON_DENSITY", 0.75))
-FILTER_THRESH_WEIGHTS_OFF_DENSITY: float = float(environ.get("FILTER_THRESH_WEIGHTS_OFF_DENSITY", 0.25))
+FILTER_THRESH_WEIGHTS_ON_DENSITY: float = float(environ.get("FILTER_THRESH_WEIGHTS_ON_DENSITY", 0.8))
+FILTER_THRESH_WEIGHTS_OFF_DENSITY: float = float(environ.get("FILTER_THRESH_WEIGHTS_OFF_DENSITY", 0.75))
 FILTER_THRESH_MIN_SCORE: float = float(environ.get("FILTER_THRESH_MIN_SCORE", 0.65))
 FILTER_METHOD: str = environ.get("FILTER_METHOD", "WEIGHTED_DENSITY")
 if FILTER_METHOD.lower() not in AnalyzeMethods.__members__.values():

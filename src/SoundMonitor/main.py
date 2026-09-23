@@ -157,7 +157,8 @@ def main() -> None:
             idx = args.idx
             psd_on, psd_off, freqs, tmpl_sr = load_templates()
             save_path = DATA_PATH / args.filename.format(f"_{idx:03d}")
-            templates = {"on": psd_on[min(idx, len(psd_on) - 1)], "off": psd_off[min(idx, len(psd_off) - 1)]}
+            # templates = {"on": psd_on[min(idx, len(psd_on) - 1)], "off": psd_off[min(idx, len(psd_off) - 1)]}
+            templates = {"on": psd_on[min(idx, len(psd_on) - 1)]}
 
             plot_psd_comparison(freqs=freqs, templates=templates, save_path=save_path)
 

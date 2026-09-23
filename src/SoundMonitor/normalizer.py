@@ -20,10 +20,20 @@ def get_normalize(a: np.ndarray, method: NormalizeMethod | None = None) -> np.fl
 
 
 def get_concatenated_norm(
-    a: list[np.ndarray] | np.ndarray, b: list[np.ndarray] | np.ndarray, method: NormalizeMethod
+    *args: np.ndarray,
+    method: NormalizeMethod | None = None,
 ) -> np.float64 | None:
-    # concatenate both lists into one array
-    all_psd = np.concatenate([np.ravel(a), np.ravel(b)])
+    """
+    Concatenate multiple PSD arrays and compute a normalization value.
+    - Flattens each input with np.ravel().
+    - Skips None or empty arrays.
+    - Returns None if nothing valid is passed.
+    """
+    valid = [np.ravel(item) for item in args if item is not None and item.size > 0]
+    if not valid:
+        return None  # stopper: no usable data
+
+    all_psd = np.concatenate(valid)
     return get_normalize(all_psd, method)
 
 

@@ -20,6 +20,8 @@ from SoundMonitor.settings import (
     NORMALIZE_LOG,
     FILTER_METHOD,
     NORMALIZE_METHOD,
+    FREQ_RANGE,
+    CROP_LIVE_FREQ_RANGE,
 )
 from SoundMonitor.state_filter import StateFilter
 
@@ -48,24 +50,24 @@ async def detection_loop(
     psd_off: list[np.ndarray],
     threshold: float,
     result_queue: asyncio.Queue,
+    freq: np.ndarray | None = None,
     window_sec: float = ANALYSIS_WINDOW_SEC,
     interval_sec: float = DETECT_INTERVAL_SEC,
     plot: bool = False,
 ) -> None:
-    history: deque[bool] = deque(maxlen=SMOOTH_WINDOWS)
     last_smoothed: bool | int | None = None
     last_written: bool | None = None  # last state sent to DB
     min_samples = int(mic.sr * window_sec)
     last_written_time: float = 0
-    psd_knn = PSD_KNN()
+    psd_knn = PSD_KNN(crop_live_freq_range=CROP_LIVE_FREQ_RANGE)
     state_filter = StateFilter(method=FILTER_METHOD)
     logger.info(f"  Starting learning psd_knn")
-    psd_knn.fit(on_templates=psd_on, off_templates=psd_off)
+    freq_templates = freq
+    psd_knn.fit(on_templates=psd_on, freq=freq, freq_low=FREQ_RANGE[0], freq_high=FREQ_RANGE[1])
     logger.info(
         f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f}, "
-        f"{plot=}, Normalize method: {str(NORMALIZE_METHOD)}. (Ctrl+C to stop)"
+        f"{plot=}, Crop Live Freq: {str(CROP_LIVE_FREQ_RANGE)}. (Ctrl+C to stop)"
     )
-    iteration = 0
     try:
         while True:
             audio = mic.get_recent(window_sec)
@@ -75,13 +77,8 @@ async def detection_loop(
                 continue
 
             freq, psd_live, success, is_on, score = await asyncio.to_thread(
-                predict_psd,
-                audio=audio,
-                psd_knn=psd_knn,
-                sr=mic.sr,
+                predict_psd, audio=audio, psd_knn=psd_knn, sr=mic.sr
             )
-
-            # freq, psd, success = await asyncio.to_thread(compute_psd, audio, sr=mic.sr, normalize=False)
 
             logger.debug(f"{success=} {len(freq)=}")
             if not success:
@@ -91,7 +88,7 @@ async def detection_loop(
 
             # print(f"{psd=}")
             # is_on, score = psd_knn.predict(psd, normalize=True)
-            logger.debug(f"{is_on=} {score=}")
+            # logger.debug(f"{is_on=} {score=}")
 
             smoothed = bool(state_filter.update(is_on, score))
 
@@ -100,7 +97,7 @@ async def detection_loop(
             # d_on = spectral_distance(psd[:n], psd_on[:n])
             # d_off = spectral_distance(psd[:n], psd_off[:n])
             # logger.debug(f"freq Hz: [{' '.join([str(f'{x:10.9f}'[:10]) for x in freq[2:8]])}] ({len(freq)})")
-            logger.info(f"{is_on=} {score=} {smoothed=}")
+            logger.info(f"{is_on=} score={score:.4f} {smoothed=}")
 
             # logger.debug(f"psd    : {psd[2:8]}")
             # logger.debug(f"psd_on : {psd_on[2:8]}")
@@ -163,7 +160,16 @@ async def detection_loop(
                 last_written_time = time.monotonic()
                 last_written = smoothed
                 if plot:
-                    templates = {"on": psd_on[0], "off": psd_off[0]}
+                    idx = 0
+                    if freq_templates is not None:
+                        mask = (freq_templates >= FREQ_RANGE[0]) & (freq_templates <= FREQ_RANGE[1])
+                        psd_on_t = psd_on[idx][mask]
+                        psd_off_t = psd_off[idx][mask]
+                    else:
+                        psd_on_t = psd_on[idx]
+                        psd_off_t = psd_off[idx]
+                    # templates = {"on": psd_on_t, "off": psd_off_t}
+                    templates = {"on": psd_on_t}
                     asyncio.create_task(
                         asyncio.to_thread(
                             plot_psd_comparison,

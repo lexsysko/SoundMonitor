@@ -5,6 +5,7 @@ import numpy as np
 
 class NumpyNormalizer:
     def __init__(self, norm: str = "l2"):
+        self.eps = 1e-12
         if norm not in ("l1", "l2", "max"):
             raise ValueError("norm must be 'l1', 'l2', or 'max'")
         self.norm = norm
@@ -13,14 +14,31 @@ class NumpyNormalizer:
         # sklearn Normalizer doesn't compute global params, just stores the rule
         return self
 
-    def transform(self, X: np.ndarray) -> np.ndarray:
+    def transform_2d(self, X: np.ndarray) -> np.ndarray:
         if self.norm == "l2":
-            norms = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
+            norms = np.linalg.norm(X, axis=1, keepdims=True) + self.eps
         elif self.norm == "l1":
-            norms = np.sum(np.abs(X), axis=1, keepdims=True) + 1e-12
+            norms = np.sum(np.abs(X), axis=1, keepdims=True) + self.eps
         elif self.norm == "max":
-            norms = np.max(np.abs(X), axis=1, keepdims=True) + 1e-12
+            norms = np.max(np.abs(X), axis=1, keepdims=True) + self.eps
         return X / norms
+
+    def transform_1d(self, X: np.ndarray) -> np.ndarray:
+        if self.norm == "l2":
+            norms = np.linalg.norm(X) + self.eps
+        elif self.norm == "l1":
+            norms = np.sum(np.abs(X)) + 1e-12
+        elif self.norm == "max":
+            norms = np.max(np.abs(X)) + 1e-12
+        return X / norms
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        match X.ndim:
+            case 1:
+                return self.transform_1d(X)
+            case 2:
+                return self.transform_2d(X)
+        raise ValueError("Unsupported dimension")
 
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
         return self.fit(X).transform(X)

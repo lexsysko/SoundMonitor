@@ -53,7 +53,7 @@ def compute_psd(
 
 
 def predict_psd(audio: np.ndarray, psd_knn: PSD_KNN, sr: int | None = None):
-    freq, psd_live, success = compute_psd(audio, sr=sr, normalize=False, normalize_value=psd_knn.global_norm)
+    freq, psd_live, success = compute_psd(audio, sr=sr, normalize=False)
 
     if not success:
         return freq, psd_live, success, 0, 0
