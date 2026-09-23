@@ -6,6 +6,15 @@ if python -c "import sys; exit(0 if 'free-threading' in sys.version else 1)"; th
   export PYTHON_GIL=0
 fi
 
+if [ "${SET_MIXER:-}" = "1" ]; then
+ echo "SETUP AUDIO MIXER..."
+ amixer -c 1 sset 'Mic Boost' 0%
+ amixer -c 1 sset 'Internal Mic Boost' 0%
+ amixer -c 1 sset 'Capture' 80% cap
+ amixer -c 1 sset Mic 100% mute
+fi
+
+
 if [ "${WAITER:-}" = "1" ]; then
  echo "RUNNING TERMINAL INFINITE WAITER..."
  exec tail -f /dev/null

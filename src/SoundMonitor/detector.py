@@ -1,28 +1,20 @@
-from collections import deque
-
 import asyncio
 import logging
 import numpy as np
 import time
 from dataclasses import dataclass
 
-from SoundMonitor.analizer import compute_psd, predict_psd
+from SoundMonitor.analizer import predict_psd
 from SoundMonitor.async_mic import AsyncMic
 from SoundMonitor.plot_psd import plot_psd_comparison
 from SoundMonitor.power_predictor import PowerPredictor
-from SoundMonitor.psd_knn import PSD_KNN
 from SoundMonitor.settings import (
-    SMOOTH_WINDOWS,
     ANALYSIS_WINDOW_SEC,
     DETECT_INTERVAL_SEC,
     PERIODIC_WRITE_TIME,
     DATA_PATH,
     PLOT_LIVE_FILENAME,
-    NORMALIZE_LOG,
     FILTER_METHOD,
-    NORMALIZE_METHOD,
-    FREQ_RANGE,
-    CROP_LIVE_FREQ_RANGE,
 )
 from SoundMonitor.state_filter import StateFilter
 
@@ -66,10 +58,7 @@ async def detection_loop(
     logger.info(f"  Starting learning psd_knn")
     freq_templates = freq
     # predictor.fit(on_templates=psd_on, freq=freq, freq_low=FREQ_RANGE[0], freq_high=FREQ_RANGE[1])
-    logger.info(
-        f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f}, "
-        f"{plot=}, Crop Live Freq: {str(CROP_LIVE_FREQ_RANGE)}. (Ctrl+C to stop)"
-    )
+    logger.info(f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f}, {plot=}. (Ctrl+C to stop)")
     try:
         while True:
             audio = mic.get_recent(window_sec)
