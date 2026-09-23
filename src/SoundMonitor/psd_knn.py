@@ -1,7 +1,8 @@
 import logging
 import numpy as np
 
-from SoundMonitor.correlate import compute_aligned_signals, compute_aligned_signals_batch
+from SoundMonitor.base_predictor import BasePredictor
+from SoundMonitor.correlate import compute_aligned_signals_batch
 from SoundMonitor.normalizer import normalize_psd
 from SoundMonitor.numpy_normalizer import NumpyNormalizer, NumpyStandardScaler
 from SoundMonitor.settings import NORMALIZE_METHOD, THRESHOLD_ON_SIM, THRESHOLD_ON_POWER_ALPHA
@@ -76,7 +77,7 @@ class FeatureAdder:
         return features
 
 
-class PSD_KNN:
+class PSD_KNN(BasePredictor):
     def __init__(self, k: int = 5, crop_live_freq_range: bool = False):
         self.k = k
         self.X_train: np.ndarray | None = None
@@ -139,7 +140,6 @@ class PSD_KNN:
         freq: np.ndarray | None = None,
         freq_low: float | None = None,
         freq_high: float | None = None,
-        normalize: bool = True,
     ) -> None:
         """Store labeled templates for states: 1 - ON"""
         try:

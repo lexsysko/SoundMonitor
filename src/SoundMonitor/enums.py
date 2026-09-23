@@ -12,4 +12,5 @@ class NormalizeMethod(StrEnum):
     NONE = auto()
     LINALG = auto()
     LOG_LINALG = auto()
+    LOG = auto()
     MAX = auto()

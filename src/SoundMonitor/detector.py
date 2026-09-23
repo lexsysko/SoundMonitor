@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from SoundMonitor.analizer import compute_psd, predict_psd
 from SoundMonitor.async_mic import AsyncMic
 from SoundMonitor.plot_psd import plot_psd_comparison
+from SoundMonitor.power_predictor import PowerPredictor
 from SoundMonitor.psd_knn import PSD_KNN
 from SoundMonitor.settings import (
     SMOOTH_WINDOWS,
@@ -59,11 +60,12 @@ async def detection_loop(
     last_written: bool | None = None  # last state sent to DB
     min_samples = int(mic.sr * window_sec)
     last_written_time: float = 0
-    psd_knn = PSD_KNN(crop_live_freq_range=CROP_LIVE_FREQ_RANGE)
+    # predictor = PSD_KNN(crop_live_freq_range=CROP_LIVE_FREQ_RANGE)
+    predictor = PowerPredictor()
     state_filter = StateFilter(method=FILTER_METHOD)
     logger.info(f"  Starting learning psd_knn")
     freq_templates = freq
-    psd_knn.fit(on_templates=psd_on, freq=freq, freq_low=FREQ_RANGE[0], freq_high=FREQ_RANGE[1])
+    # predictor.fit(on_templates=psd_on, freq=freq, freq_low=FREQ_RANGE[0], freq_high=FREQ_RANGE[1])
     logger.info(
         f"  Detection loop running @ {mic.sr} Hz with threshold: {threshold:.4f}, "
         f"{plot=}, Crop Live Freq: {str(CROP_LIVE_FREQ_RANGE)}. (Ctrl+C to stop)"
@@ -77,10 +79,11 @@ async def detection_loop(
                 continue
 
             freq, psd_live, success, is_on, score = await asyncio.to_thread(
-                predict_psd, audio=audio, psd_knn=psd_knn, sr=mic.sr
+                predict_psd, audio=audio, predictor=predictor, sr=mic.sr
             )
 
-            logger.debug(f"{success=} {len(freq)=}")
+            freq_list = [str(int(f)) for f in freq if f]
+            logger.debug(f"{success=}, Analyzed frequencies ({len(freq)}): {','.join(freq_list)} Hz")
             if not success:
                 logger.warning("Recording failed: audio device might be muted. Retrying after 10 seconds...")
                 await asyncio.sleep(10)
@@ -161,15 +164,16 @@ async def detection_loop(
                 last_written = smoothed
                 if plot:
                     idx = 0
-                    if freq_templates is not None:
-                        mask = (freq_templates >= FREQ_RANGE[0]) & (freq_templates <= FREQ_RANGE[1])
-                        psd_on_t = psd_on[idx][mask]
-                        psd_off_t = psd_off[idx][mask]
-                    else:
-                        psd_on_t = psd_on[idx]
-                        psd_off_t = psd_off[idx]
+                    # if freq_templates is not None:
+                    #     mask = (freq_templates >= FREQ_RANGE[0]) & (freq_templates <= FREQ_RANGE[1])
+                    #     psd_on_t = psd_on[idx][mask]
+                    #     psd_off_t = psd_off[idx][mask]
+                    # else:
+                    #     psd_on_t = psd_on[idx]
+                    #     psd_off_t = psd_off[idx]
                     # templates = {"on": psd_on_t, "off": psd_off_t}
-                    templates = {"on": psd_on_t}
+                    # templates = {"on": psd_on_t}
+                    templates = {}
                     asyncio.create_task(
                         asyncio.to_thread(
                             plot_psd_comparison,
@@ -177,7 +181,6 @@ async def detection_loop(
                             templates=templates,
                             psd_live=psd_live,
                             save_path=DATA_PATH / PLOT_LIVE_FILENAME,
-                            normalize_value=psd_knn.global_norm,
                         )
                     )
 

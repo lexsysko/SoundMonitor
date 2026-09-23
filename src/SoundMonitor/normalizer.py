@@ -55,6 +55,10 @@ def normalize_psd(
                 return np.zeros_like(psd), False, None
             return (psd / norm_val).astype(np.float32), True, norm_val
 
+        case NormalizeMethod.LOG:
+            psd_log = 10 * np.log10(psd + 1e-16)
+            return psd_log, True, None
+
         case NormalizeMethod.LOG_LINALG:
             psd_log = 10 * np.log10(psd + 1e-16)
             logger.debug(f"{psd_log.max()=}- {psd_log.min()=} = {psd_log.max() - psd_log.min()}")

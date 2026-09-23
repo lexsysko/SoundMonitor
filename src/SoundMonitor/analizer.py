@@ -2,9 +2,10 @@ import logging
 import numpy as np
 from scipy.signal import butter, sosfiltfilt, welch
 
+from SoundMonitor.base_predictor import BasePredictor
 from SoundMonitor.normalizer import normalize_psd
 from SoundMonitor.psd_knn import PSD_KNN
-from SoundMonitor.settings import WELCH_WINDOW_SEC, get_effective_sr, FREQ_RANGE, NORMALIZE_METHOD
+from SoundMonitor.settings import WELCH_WINDOW_SEC, get_effective_sr, FREQ_RANGE, NORMALIZE_METHOD, THRESHOLD_ON_POWER
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,8 @@ def compute_psd(
 
     # logger.debug(f"compute_psd {nperseg=}  {len(audio)=}  {(len(audio)/sr)=} ")
 
-    freqs, psd = welch(audio, fs=sr, nperseg=nperseg, scaling="density", average="median")
+    # freqs, psd = welch(audio, fs=sr, nperseg=nperseg, scaling="density", average="median")
+    freqs, psd = welch(audio, fs=sr, nperseg=nperseg, scaling="density")
 
     logger.debug(f"compute_psd welch {len(psd)=} {len(freqs)=} {nperseg=}")
 
@@ -52,13 +54,13 @@ def compute_psd(
     return freqs, *normalize_psd(psd=psd, method=NORMALIZE_METHOD, normalize_value=normalize_value)[:2]
 
 
-def predict_psd(audio: np.ndarray, psd_knn: PSD_KNN, sr: int | None = None):
+def predict_psd(audio: np.ndarray, predictor: BasePredictor, sr: int | None = None):
     freq, psd_live, success = compute_psd(audio, sr=sr, normalize=False)
 
     if not success:
         return freq, psd_live, success, 0, 0
 
-    is_on, score = psd_knn.predict(psd_live, normalize=True)
+    is_on, score = predictor.predict(psd_live)
 
     return freq, psd_live, success, is_on, score
 
@@ -67,3 +69,34 @@ def spectral_distance(psd_a: np.ndarray, psd_b: np.ndarray) -> float:
     n = min(len(psd_a), len(psd_b))
     cos = np.dot(psd_a[:n], psd_b[:n])
     return float(1.0 - np.clip(cos, -1.0, 1.0))
+
+
+def extract_coarse_bands(psd_array, num_bands=4):
+    """Splits a wide ~100Hz spectrum into broad sub-bands.
+
+    Converts shape (N, M) -> (N, num_bands)
+    """
+    if psd_array.ndim == 1:
+        psd_array = psd_array[None, :]
+
+    # Split array into equal broad frequency bands and sum energy
+    band_chunks = np.array_split(psd_array, num_bands, axis=1)
+    coarse_features = np.column_stack([np.sum(chunk, axis=1) for chunk in band_chunks])
+
+    # Normalize feature vectors for KNN
+    norms = np.linalg.norm(coarse_features, axis=1, keepdims=True)
+    return coarse_features / (norms + 1e-10)
+
+
+def compute_band_power_db(psd_array, sample_spacing=0.5):
+    """Calculates total integrated power in a wide frequency band in dB.
+
+    psd_array: (N, M) matrix or (M,) vector of PSD values
+    sample_spacing: frequency bin width (Hz)
+
+    Returns: Scalar or (N,) array of total band powers
+    """
+    # Total area under the PSD curve using Trapezoidal integration
+    total_power = np.trapezoid(psd_array, dx=sample_spacing, axis=-1)
+    power_db = 10 * np.log10(total_power + 1e-12)
+    return power_db

@@ -39,7 +39,7 @@ BATCH_FLUSH_DB_TIMEOUT: int = int(environ.get("BATCH_FLUSH_DB_TIMEOUT", 2))
 PREFERRED_RATES = [44100, 48000, 16000]
 CHANNELS = 1
 CHUNK = 1024
-WELCH_WINDOW_SEC = 0.64
+WELCH_WINDOW_SEC = 0.1857596371882086 * 2
 
 FREQ_RANGE = (float(environ.get("FREQ_RANGE_LOW", "90")), float(environ.get("FREQ_RANGE_HIGH", "120")))
 CROP_LIVE_FREQ_RANGE: bool = environ.get("CROP_LIVE_FREQ_RANGE", "False")[0].lower() == "t"
@@ -50,6 +50,7 @@ MIN_CONFIRM = int(SMOOTH_WINDOWS * 0.85)  # how many votes needed to change stat
 THRESHOLD_ON = float(environ.get("THRESHOLD_ON", 0.9))
 THRESHOLD_OFF = float(environ.get("THRESHOLD_OFF", 1.8))
 THRESHOLD_ON_POWER_ALPHA = float(environ.get("THRESHOLD_ON_POWER_ALPHA", 0.3))
+THRESHOLD_ON_POWER = float(environ.get("THRESHOLD_ON_POWER", -50))
 THRESHOLD_ON_SIM = float(environ.get("THRESHOLD_ON_SIM", 0.45))
 MIN_RECORD_SEC = 3.0
 SAFETY_MARGIN = 0.18

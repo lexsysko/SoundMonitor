@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from SoundMonitor.enums import NormalizeMethod
 from SoundMonitor.normalizer import normalize_psd, get_concatenated_norm
 from SoundMonitor.settings import NORMALIZE_METHOD
 
@@ -35,7 +36,9 @@ def plot_psd_comparison(
     n = min(len(arr) for arr in arrays)
     f = freqs[:n]
 
-    normalize_value = normalize_value or get_concatenated_norm(*templates.values(), method=NORMALIZE_METHOD)
+    normalize_method = NormalizeMethod.NONE
+
+    normalize_value = normalize_value or get_concatenated_norm(*templates.values(), method=normalize_method)
     # n_on, success_on, normalize_value_on = normalize_psd(
     #     templates["on"], method=NORMALIZE_METHOD, normalize_value=normalize_value
     # )
@@ -53,7 +56,7 @@ def plot_psd_comparison(
     y_min = 0
     y_max = 0
     for label, psd in templates.items():
-        psd = normalize_psd(psd[:n], normalize_value=normalize_value, method=NORMALIZE_METHOD)[0]
+        psd = normalize_psd(psd[:n], normalize_value=normalize_value, method=normalize_method)[0]
         y_min = min(psd.min(), y_min)
         y_max = max(psd.max(), y_max)
         ax.plot(f, psd, label=f"{label.upper()} Template", color=colors.get(label, None), linewidth=2, alpha=0.8)
@@ -71,7 +74,7 @@ def plot_psd_comparison(
 
     # Plot live signal
     if psd_live is not None and len(psd_live) > 0:
-        psd_live = normalize_psd(psd_live[:n], normalize_value=normalize_value, method=NORMALIZE_METHOD)[0]
+        psd_live = normalize_psd(psd_live[:n], normalize_value=normalize_value, method=normalize_method)[0]
         ax.plot(f, psd_live, label="Live Signal", color="black", linestyle="--", linewidth=1.5)
         max_idx_live = np.argmax(psd_live)
         ax.plot(
