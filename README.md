@@ -1,13 +1,13 @@
 # HOST SOUND MIXER
 
 ```bash
-sudo amixer -c 1 sset Capture 100% cap
+sudo amixer -c 1 sset Capture 80% cap
 Simple mixer control 'Capture',0
   Capabilities: cvolume cswitch
   Capture channels: Front Left - Front Right
   Limits: Capture 0 - 63
-  Front Left: Capture 63 [100%] [30.00dB] [on]
-  Front Right: Capture 63 [100%] [30.00dB] [on]
+  Front Left: Capture 50 [79%] [20.25dB] [on]
+  Front Right: Capture 50 [79%] [20.25dB] [on]
 
 sudo amixer -c 1 sset Mic 100% mute
 Simple mixer control 'Mic',0
@@ -17,6 +17,7 @@ Simple mixer control 'Mic',0
   Mono:
   Front Left: Playback 31 [100%] [12.00dB] [off]
   Front Right: Playback 31 [100%] [12.00dB] [off]
+  
 
 ```
 

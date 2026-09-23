@@ -36,7 +36,7 @@ def plot_psd_comparison(
     n = min(len(arr) for arr in arrays)
     f = freqs[:n]
 
-    normalize_method = NormalizeMethod.NONE
+    normalize_method = NormalizeMethod.LOG
 
     normalize_value = normalize_value or get_concatenated_norm(*templates.values(), method=normalize_method)
     # n_on, success_on, normalize_value_on = normalize_psd(
@@ -53,12 +53,12 @@ def plot_psd_comparison(
 
     # Plot each template
     colors = {"on": "crimson", "off": "dodgerblue"}
-    y_min = 0
-    y_max = 0
+    y_min = None
+    y_max = None
     for label, psd in templates.items():
         psd = normalize_psd(psd[:n], normalize_value=normalize_value, method=normalize_method)[0]
-        y_min = min(psd.min(), y_min)
-        y_max = max(psd.max(), y_max)
+        y_min = min(psd.min(), y_min or psd.min())
+        y_max = max(psd.max(), y_max or psd.max())
         ax.plot(f, psd, label=f"{label.upper()} Template", color=colors.get(label, None), linewidth=2, alpha=0.8)
         ax.fill_between(f, psd, alpha=0.12, color=colors.get(label, "gray"))
         if len(psd) > 0:
@@ -90,14 +90,14 @@ def plot_psd_comparison(
     ax.set_title(title, fontsize=11, fontweight="bold")
     fig.text(0.98, 0.01, f"Generated: {timestamp_str}", fontsize=8, color="gray", ha="right")
     ax.set_xlabel("Frequency (Hz)", fontsize=10)
-    ax.set_ylabel("Normalized Power", fontsize=10)
+    ax.set_ylabel("Power (dB)", fontsize=10)
     ax.set_xlim(f[0], f[-1])
     # Dynamic y-limits
     if psd_live is not None and len(psd_live) > 0:
-        y_min = min(y_min, np.min(psd_live[:n]))
-        y_max = max(y_max, np.max(psd_live[:n]))
+        y_min = min(y_min or np.min(psd_live[:n]), np.min(psd_live[:n]))
+        y_max = max(y_max or np.max(psd_live[:n]), np.max(psd_live[:n]))
     # logger.debug(f"{y_min=} {y_max=}")
-    ax.set_ylim(y_min - 0.05 * abs(y_min), y_max + 0.05 * abs(y_max))
+    ax.set_ylim((y_min or 0) - 0.05 * abs(y_min or 0), (y_max or 1) + 0.05 * abs(y_max or 1))
     ax.grid(True, linestyle=":", alpha=0.6)
     ax.legend(loc="upper right", fontsize=8)
 

@@ -82,8 +82,8 @@ async def detection_loop(
                 predict_psd, audio=audio, predictor=predictor, sr=mic.sr
             )
 
-            freq_list = [str(int(f)) for f in freq if f]
-            logger.debug(f"{success=}, Analyzed frequencies ({len(freq)}): {','.join(freq_list)} Hz")
+            freq_list = [str(round(f, 1)) for f in freq if f]
+            logger.debug(f"{success=}, Analyzed frequencies ({len(freq)}): {', '.join(freq_list)} Hz")
             if not success:
                 logger.warning("Recording failed: audio device might be muted. Retrying after 10 seconds...")
                 await asyncio.sleep(10)
