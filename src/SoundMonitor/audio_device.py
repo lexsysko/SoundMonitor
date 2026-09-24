@@ -1,12 +1,9 @@
-import os
-
-import sys
-
-from time import sleep
-
 import logging
 import numpy as np
-from typing import Tuple
+import os
+import sys
+from time import sleep
+from typing import Tuple, Mapping
 
 from SoundMonitor.settings import CHUNK, set_effective_sr, PREFERRED_RATES, CHANNELS
 
@@ -35,20 +32,72 @@ class suppress_fd_stderr:
         os.close(self.saved_err_fd)
 
 
-def list_input_devices() -> None:
-    with suppress_fd_stderr():
-        pa = pyaudio.PyAudio()
-        buff = "\nAvailable input devices:"
-        for i in range(pa.get_device_count()):
-            info = pa.get_device_info_by_index(i)
-            if info["maxInputChannels"] > 0:
-                buff += (
-                    f"\n  [{i}] {info['name']}  "
-                    f"(max in={info['maxInputChannels']}, "
-                    f"default rate={int(info['defaultSampleRate'])})"
-                )
-        pa.terminate()
+class PA:
+    _pa: pyaudio.PyAudio | None = None
+
+    @classmethod
+    def create(cls) -> pyaudio.PyAudio:
+        if cls._pa is None:
+            try:
+                with suppress_fd_stderr():
+                    cls._pa = pyaudio.PyAudio()
+            except OSError as e:
+                logger.error(str(e))
+        return cls._pa  # noqa
+
+    @classmethod
+    def terminate(cls) -> None:
+        if cls._pa is not None:
+            try:
+                cls._pa.terminate()
+            except OSError as e:
+                logger.error(str(e))
+            cls._pa = None
+        return None
+
+    def __enter__(self):
+        return self.create()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.terminate()
+
+
+def list_input_devices(pa: pyaudio.PyAudio) -> list[Mapping]:
+    device_count = pa.get_device_count()
+    buff = f"\nAvailable input devices of {device_count} :"
+    input_devices: list[Mapping] = []
+    for i in range(device_count):
+        try:
+            # with suppress_fd_stderr():
+            info: Mapping = pa.get_device_info_by_index(i)
+        except IOError:
+            continue
+        if info["maxInputChannels"] > 0:
+            default_sample_rate = int(info.get("defaultSampleRate", 0))
+            input_devices.append(info)
+            buff += f"\n  [{i}] {info['name']}  (max in={info['maxInputChannels']}, default rate={default_sample_rate})"
     logger.info(buff + "\n")
+    return input_devices
+
+
+def list_output_devices(pa: pyaudio.PyAudio) -> list[Mapping]:
+    device_count = pa.get_device_count()
+    buff = f"\nAvailable output devices of {device_count} :"
+    output_devices: list[Mapping] = []
+    for i in range(device_count):
+        try:
+            # with suppress_fd_stderr():
+            info: Mapping = pa.get_device_info_by_index(i)
+        except IOError:
+            continue
+        if info["maxOutputChannels"] > 0:
+            default_sample_rate = int(info.get("defaultSampleRate", 0))
+            output_devices.append(info)
+            buff += (
+                f"\n  [{i}] {info['name']}  (max out={info['maxOutputChannels']}, default rate={default_sample_rate})"
+            )
+    logger.info(buff + "\n")
+    return output_devices
 
 
 def open_input_stream(
@@ -75,7 +124,8 @@ def open_input_stream(
             kwargs["stream_callback"] = callback
 
         try:
-            stream = pa.open(**kwargs)
+            with suppress_fd_stderr():
+                stream = pa.open(**kwargs)
             logger.info(f"  Audio opened at {rate} Hz")
             return stream, rate
         except Exception as e:
@@ -86,6 +136,7 @@ def open_input_stream(
 
 
 def record_seconds(
+    pa: pyaudio.PyAudio,
     seconds: float,
     device_index: int | None = None,
 ) -> Tuple[np.ndarray, int]:
@@ -93,20 +144,18 @@ def record_seconds(
     Blocking record for training.
     Returns (audio_float32, effective_sr).
     """
-    with suppress_fd_stderr():
-        pa = pyaudio.PyAudio()
-        stream, sr = open_input_stream(pa, device_index=device_index)
-        set_effective_sr(sr)
+    stream, sr = open_input_stream(pa, device_index=device_index)
+    set_effective_sr(sr)
 
-        frames = []
-        n_chunks = max(1, int(sr / CHUNK * seconds))
-        logger.info(f"  Recording {seconds:.1f}s @ {sr} Hz …")
-        for _ in range(n_chunks):
-            data = stream.read(CHUNK, exception_on_overflow=False)
-            frames.append(np.frombuffer(data, dtype=np.int16))
-        stream.stop_stream()
-        stream.close()
-        pa.terminate()
+    frames = []
+    n_chunks = max(1, int(sr / CHUNK * seconds))
+    logger.info(f"  Recording {seconds:.1f}s @ {sr} Hz …")
+    for _ in range(n_chunks):
+        data = stream.read(CHUNK, exception_on_overflow=False)
+        frames.append(np.frombuffer(data, dtype=np.int16))
+    stream.stop_stream()
+    stream.close()
+
     logger.info("  Recording done")
 
     audio = np.concatenate(frames)
@@ -122,6 +171,7 @@ def record_seconds(
 
 
 def play_beep(
+    pa: pyaudio.PyAudio,
     melody: list[int] | None = None,
     duration: float = 0.2,
     pause: float = 0.3,
@@ -129,40 +179,47 @@ def play_beep(
     device_index: int | None = None,
 ):
     melody = melody or [1000, 2000, 1000, 1500]
-    with suppress_fd_stderr():
-        p = pyaudio.PyAudio()
 
-        rates = (sample_rate,) if sample_rate else PREFERRED_RATES
+    rates = (sample_rate,) if sample_rate else PREFERRED_RATES
 
-        # Open output stream
-        for rate in rates:
-            kwargs = dict(format=pyaudio.paInt16, channels=1, rate=rate, output=True)
-            if device_index is not None:
-                kwargs["input_device_index"] = device_index
-            stream = p.open(**kwargs)
-            logger.info("Beep sound opened at {rate} Hz")
-            try:
-                for frequency in melody:
-                    # Generate sine wave
-                    t = np.linspace(0, duration, int(rate * duration), False)
-                    tone = np.sin(frequency * 2 * np.pi * t)
+    # Open output stream
+    stream = None
+    for rate in rates:
+        kwargs = dict(format=pyaudio.paInt16, channels=1, rate=rate, output=True)
+        if device_index is not None:
+            kwargs["output_device_index"] = device_index
+        try:
+            with suppress_fd_stderr():
+                stream = pa.open(**kwargs)
+            logger.info(f"Beep sound opened at {rate} Hz {device_index=}")
+            for frequency in melody:
+                # Generate sine wave
+                t = np.linspace(0, duration, int(rate * duration), False)
+                tone = np.sin(frequency * 2 * np.pi * t)
 
-                    # Convert to 16-bit PCM
-                    audio = (tone * 32767).astype(np.int16).tobytes()
+                # Convert to 16-bit PCM
+                audio = (tone * 32767).astype(np.int16).tobytes()
 
-                    stream.write(audio)
-                    sleep(pause)
-                stream.stop_stream()
-                stream.close()
-                logger.info(f"  Audio opened at {rate} Hz")
-                break
+                stream.write(audio)
+                sleep(pause)
+            stream.stop_stream()
+            stream.close()
+            logger.info(f"  Audio opened at {rate} Hz")
+            break
 
-            except Exception as e:
-                last_err = e
-                logger.error(f"  Rate {rate} Hz not accepted: {e}")
-
-        p.terminate()
+        except Exception as e:
+            logger.error(f"  Rate {rate} Hz not accepted: {e}")
 
 
 if __name__ == "__main__":
-    play_beep()
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        # stream=sys.stdout,
+        force=True,
+    )
+    device_index = int(sys.argv[1]) if len(sys.argv) > 1 else None
+    with PA() as pa:
+        list_output_devices(pa)
+        play_beep(pa, device_index=device_index)

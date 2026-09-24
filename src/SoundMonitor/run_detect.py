@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from SoundMonitor.async_mic import AsyncMic
-from SoundMonitor.audio_device import list_input_devices
+from SoundMonitor.audio_device import list_input_devices, PA
 from SoundMonitor.db_writer_worker import db_writer_worker, db_cleanup_worker, init_db
 from SoundMonitor.detector import detection_loop
 from SoundMonitor.handler_signal import setup_signal_handlers
@@ -32,7 +32,7 @@ async def run_detect(
     logger.info(f"  Will try rates: {PREFERRED_RATES}")
     logger.info("  Ctrl+C to stop")
     logger.info("=" * 60)
-    list_input_devices()
+    list_input_devices(PA.create())
     logger.info("")
 
     shutdown_event = asyncio.Event()

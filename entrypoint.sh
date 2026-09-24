@@ -26,9 +26,17 @@ if [ -n "${THRESHOLD:-}" ]; then
   THRESHOLD=" --threshold ${THRESHOLD}"
 fi
 
+if [ -n "${DEVICE:-}" ]; then
+  DEVICE=" --device ${DEVICE}"
+fi
+
+if [ -n "${LOGLEVEL:-WARNING}" ]; then
+  LOGLEVEL=" --loglevel ${LOGLEVEL}"
+fi
+
 if [ "${PLOT:-}" = "1" ]; then
   PLOT=" --plot"
 fi
 
-echo "\n\nRUNNING detect --loglevel=${LOGLEVEL:-WARNING}${THRESHOLD:-}${PLOT:-}..."
-exec python /app/src/SoundMonitor/main.py --loglevel=${LOGLEVEL:-WARNING} detect${THRESHOLD:-}${PLOT:-}
+echo "\n\nRUNNING detect ${LOGLEVEL}${THRESHOLD:-}${PLOT:-}${DEVICE}..."
+exec python /app/src/SoundMonitor/main.py ${LOGLEVEL} detect${THRESHOLD:-}${PLOT:-}${DEVICE}
