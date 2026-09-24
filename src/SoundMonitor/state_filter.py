@@ -116,7 +116,6 @@ class StateFilter:
         return density_ones, stability
 
     def update_weighted_density_state(self, weighted_density):
-        # ВИПРАВЛЕНО: Гістерезисна логіка замість інверсії (not self.current_state)
         if self.current_state == 0:
             if weighted_density >= self.thresh.weights_on_density:
                 self.current_state = 1
@@ -139,7 +138,10 @@ class StateFilter:
             case AnalyzeMethods.WEIGHTED_DENSITY:
                 weighted_density = self.get_weighted_density()
                 self.update_weighted_density_state(weighted_density)
-                logger.debug(f"{self.method.name} : {score=:.2f}, state={self.current_state}, {weighted_density=:.2f}")
+                logger.debug(
+                    f"{self.method.name} : {score=:.2f}, state={self.current_state}, {weighted_density=:.2f}."
+                    f" ON/OFF: [ {self.thresh.weights_on_density:.2f} | {self.thresh.weights_off_density:.2f} ]"
+                )
                 return self.current_state
 
             case AnalyzeMethods.SCORED_WEIGHTED_DENSITY:
@@ -147,7 +149,10 @@ class StateFilter:
 
                 weighted_density = self.get_scored_weighted_density()
                 self.update_weighted_density_state(weighted_density)
-                logger.debug(f"{self.method.name} : {score=:.2f}, state={self.current_state}, {weighted_density=:.2f}")
+                logger.debug(
+                    f"{self.method.name} : {score=:.2f}, state={self.current_state}, {weighted_density=:.2f}."
+                    f" ON/OFF: [ {self.thresh.weights_on_density:.2f} | {self.thresh.weights_off_density:.2f} ]"
+                )
                 return self.current_state
 
             case AnalyzeMethods.CONSECUTIVE_TAIL:
@@ -158,7 +163,8 @@ class StateFilter:
                 elif self.current_state == 1 and last_val == 0 and streak >= self.thresh.streak:
                     self.current_state = 0
                 logger.debug(
-                    f"{self.method.name} : {score=:.2f}, state={self.current_state}, {last_val=}, {streak=} {self.thresh.streak=}"
+                    f"{self.method.name} : {score=:.2f}, state={self.current_state}, {last_val=}, {streak=}. "
+                    f"ON/OFF: [ {self.thresh.streak} ]"
                 )
                 return self.current_state
 
@@ -174,6 +180,7 @@ class StateFilter:
 
                 logger.debug(
                     f"{self.method.name} : {score=:.2f}, state={self.current_state}, {density_ones=:.2f}, {stability=:.2f}"
+                    f" ON/OFF: [ {self.thresh.on_density:.2f} | {self.thresh.off_density:.2f} ]"
                 )
                 return self.current_state
 

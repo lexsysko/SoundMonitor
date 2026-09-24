@@ -32,7 +32,7 @@ def load_threshold(override: float | None = None) -> float:
             logger.info(f"  Using calibrated threshold: {t:.3f}")
             return t
         except Exception as e:
-            logger.info(f"  Warning: could not read {THRESHOLD_FILE}: {e}")
+            logger.debug(f"  Warning: could not read {THRESHOLD_FILE}: {e}")
     logger.info(f"  Using default threshold: {DEFAULT_THRESHOLD:.3f}")
     return DEFAULT_THRESHOLD
 

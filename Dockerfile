@@ -77,6 +77,7 @@ RUN apt-get update && \
     zlib1g \
     procps \
     htop \
+    alsa-utils \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -96,7 +97,9 @@ COPY pyproject.toml .
 COPY ./src ./src/
 COPY --chmod=+x ./entrypoint.sh .
 
-ENV PATH="/opt/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
+ENV PATH="/opt/.venv/bin:$PATH" JACK_NO_START_SERVER=1 LIBJACK_NO_AUDIO_CRITICAL=1 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
+
+# RUN printf 'pcm.!default {\n  type hw\n  card 1\n  device 0\n}\nctl.!default {\n  type hw\n  card 1\n}\n' > /etc/asound.conf
 
 #USER ${_USER}
 

@@ -20,10 +20,12 @@ class PowerPredictor(BasePredictor):
         - state: 1 (ON) or 0 (OFF)
         - score: average likes [0.0...1.0]
         """
-        power_on_db = self.threshold_power * 0.9
+        power_on_db = self.threshold_power * 0.93
         power_off_db = self.threshold_power * 1.1
         power_db = compute_band_power_db(psd, sample_spacing=1)
-        logger.debug(f"Power: {power_db:.2f}dB")
+        logger.debug(
+            f"Power: {power_db:.2f}dB, Range ON/OFF: [ {power_on_db:.2f} | {self.threshold_power:.2f} | {power_off_db:.2f} ]dB"
+        )
         is_on = bool(power_db >= self.threshold_power)
         score = float(
             np.clip(

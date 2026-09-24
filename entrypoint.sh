@@ -6,6 +6,7 @@ if python -c "import sys; exit(0 if 'free-threading' in sys.version else 1)"; th
   export PYTHON_GIL=0
 fi
 
+
 if [ "${SET_MIXER:-}" = "1" ]; then
  echo "SETUP AUDIO MIXER..."
  amixer -c 1 sset 'Mic Boost' 0%
@@ -29,5 +30,5 @@ if [ "${PLOT:-}" = "1" ]; then
   PLOT=" --plot"
 fi
 
-echo "RUNNING detect --loglevel=${LOGLEVEL:-WARNING}${THRESHOLD:-}${PLOT:-}..."
+echo "\n\nRUNNING detect --loglevel=${LOGLEVEL:-WARNING}${THRESHOLD:-}${PLOT:-}..."
 exec python /app/src/SoundMonitor/main.py --loglevel=${LOGLEVEL:-WARNING} detect${THRESHOLD:-}${PLOT:-}

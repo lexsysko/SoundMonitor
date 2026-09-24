@@ -6,7 +6,7 @@ from SoundMonitor.audio_device import list_input_devices
 from SoundMonitor.db_writer_worker import db_writer_worker, db_cleanup_worker, init_db
 from SoundMonitor.detector import detection_loop
 from SoundMonitor.handler_signal import setup_signal_handlers
-from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, TEMPLATE_DIR, DB_FILE, PREFERRED_RATES
+from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, TEMPLATE_DIR, DB_FILE, PREFERRED_RATES, DEFAULT_THRESHOLD
 from SoundMonitor.templates import load_templates, load_threshold
 
 logger = logging.getLogger(__name__)
@@ -18,14 +18,15 @@ async def run_detect(
     window_sec: float = ANALYSIS_WINDOW_SEC,
     plot: bool = False,
 ) -> None:
-    psd_on, psd_off, freq, tmpl_sr = load_templates()
-    thr = load_threshold(override=threshold_override)
+    # psd_on, psd_off, freq, tmpl_sr = load_templates()
+    # thr = load_threshold(override=threshold_override)
+    psd_on, psd_off, freq, thr = None, None, None, DEFAULT_THRESHOLD
 
     logger.info("=" * 60)
     logger.info("LIVE ASYNC DETECTION")
-    logger.info(f"  Template dir : {TEMPLATE_DIR}")
-    logger.info(f"  Template SR  : {tmpl_sr} Hz")
-    logger.info(f"  Threshold    : {thr:.3f}")
+    # logger.info(f"  Template dir : {TEMPLATE_DIR}")
+    # logger.info(f"  Template SR  : {tmpl_sr} Hz")
+    # logger.info(f"  Threshold    : {thr:.3f}")
     logger.info(f"  Window       : {window_sec:.1f}s")
     logger.info(f"  SQLite DB    : {DB_FILE}")
     logger.info(f"  Will try rates: {PREFERRED_RATES}")
@@ -49,12 +50,12 @@ async def run_detect(
     mic = AsyncMic(device_index=device_index)
     live_sr = mic.start()
 
-    if live_sr != tmpl_sr:
-        logger.info(
-            f"  ⚠  Live SR ({live_sr}) ≠ template SR ({tmpl_sr}). "
-            "PSD shapes should still match (normalized), but for best "
-            "results re-train at the same rate."
-        )
+    # if live_sr != tmpl_sr:
+    #     logger.info(
+    #         f"  ⚠  Live SR ({live_sr}) ≠ template SR ({tmpl_sr}). "
+    #         "PSD shapes should still match (normalized), but for best "
+    #         "results re-train at the same rate."
+    #     )
 
     detect_task = asyncio.create_task(
         detection_loop(
