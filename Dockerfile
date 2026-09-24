@@ -16,6 +16,8 @@ RUN apt-get update \
         portaudio19-dev \
         pkg-config \
         libopenblas-dev \
+        zlib1g-dev \
+        libjpeg-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -38,7 +40,7 @@ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     --mount=type=cache,id=ccache,target=/root/.cache/ccache \
     uv sync ${PYTHON_VER_UV:-} ${VERBOSE:-} --frozen --no-install-project --no-dev
 
-RUN PYTHON_GIL=0 ${UV_PROJECT_ENVIRONMENT}/bin/python -c "\
+RUN if [ -n "${PYTHON_VER_UV}" ]; then export PYTHON_GIL=0; fi; ${UV_PROJECT_ENVIRONMENT}/bin/python -c "\
 import sys; \
 import numpy; \
 import scipy; \
@@ -50,6 +52,20 @@ print('scipy:', scipy.__version__); \
 print('pyaudio:', pyaudio.__version__) \
 "
 
+# 1. Base stage used when PYTHON_VER_UV is empty/unset
+FROM scratch AS uv_python_source
+WORKDIR /uv-python
+
+# 2. Stage used ONLY when PYTHON_VER_UV is set
+FROM builder AS uv_python_source_set
+RUN mkdir -p /uv-python \
+ && cp -a /root/.local/share/uv/python/. /uv-python/ 2>/dev/null || true
+
+# 3. Dynamic target selection (SINGLE LINE)
+# Unset/Empty -> targets "uv_python_source"
+# Set          -> targets "uv_python_source_set"
+FROM uv_python_source${PYTHON_VER_UV:+_set} AS uv_python_final
+
 FROM python:${PYTHON_VER}-slim AS runner
 
 # Install system dependencies
@@ -57,8 +73,11 @@ RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     libopenblas0 \
     libportaudio2 \
+    libjpeg62-turbo \
+    zlib1g \
     procps \
     htop \
+    alsa-utils \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -72,13 +91,15 @@ WORKDIR /app
 
 
 # Copy venv from previous stage "builder"
-COPY --from=builder /root/.local/share/uv/python /root/.local/share/uv/python
+COPY --from=uv_python_final /uv-python /root/.local/share/uv/python
 COPY --from=builder /opt/.venv /opt/.venv
 COPY pyproject.toml .
 COPY ./src ./src/
 COPY --chmod=+x ./entrypoint.sh .
 
-ENV PATH="/opt/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=./src PYTHON_GIL=0
+ENV PATH="/opt/.venv/bin:$PATH" JACK_NO_START_SERVER=1 LIBJACK_NO_AUDIO_CRITICAL=1 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
+
+# RUN printf 'pcm.!default {\n  type hw\n  card 1\n  device 0\n}\nctl.!default {\n  type hw\n  card 1\n}\n' > /etc/asound.conf
 
 #USER ${_USER}
 
