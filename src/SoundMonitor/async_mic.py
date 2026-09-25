@@ -1,13 +1,12 @@
-import logging
 from collections import deque
 
+import logging
 import numpy as np
 import pyaudio
 from threading import Lock
-
 from typing import Deque, Tuple
 
-from SoundMonitor.audio_device import open_input_stream, suppress_fd_stderr
+from SoundMonitor.services.audio_device import open_input_stream, PA
 from SoundMonitor.settings import PREFERRED_RATES, set_effective_sr, BUFFER_SEC
 
 logger = logging.getLogger(__name__)
@@ -17,7 +16,7 @@ class AsyncMic:
     """Non-blocking mic via PyAudio callback; auto rate fallback."""
 
     def __init__(self, device_index: int | None = None):
-        self.device_index = device_index
+        self._device_index = device_index
         self.sr: int = PREFERRED_RATES[0]
         self.buffer: Deque[float] = deque()
         self._pa = None
@@ -32,14 +31,21 @@ class AsyncMic:
             self.buffer.extend(audio.tolist())
         return None, pyaudio.paContinue
 
+    @property
+    def pa(self):
+        return self._pa
+
+    @property
+    def device_index(self):
+        return self._device_index
+
     def start(self) -> int:
-        with suppress_fd_stderr():
-            self._pa = pyaudio.PyAudio()
-            self._stream, self.sr = open_input_stream(
-                self._pa,
-                device_index=self.device_index,
-                callback=self._callback,
-            )
+        self._pa = PA.create()
+        self._stream, self.sr = open_input_stream(
+            self._pa,
+            device_index=self._device_index,
+            callback=self._callback,
+        )
         set_effective_sr(self.sr)
         # size ring buffer for BUFFER_SEC at the real rate
         with self._lock:
@@ -54,7 +60,7 @@ class AsyncMic:
             self._stream.close()
             self._stream = None
         if self._pa is not None:
-            self._pa.terminate()
+            PA.terminate()
             self._pa = None
         logger.info("  Microphone stream stopped")
 

@@ -2,10 +2,14 @@ import logging
 import numpy as np
 from scipy.signal import butter, sosfiltfilt, welch
 
-from SoundMonitor.base_predictor import BasePredictor
-from SoundMonitor.normalizer import normalize_psd
-from SoundMonitor.psd_knn import PSD_KNN
-from SoundMonitor.settings import WELCH_WINDOW_SEC, get_effective_sr, FREQ_RANGE, NORMALIZE_METHOD, THRESHOLD_ON_POWER
+from SoundMonitor.predictors.base_predictor import BasePredictor
+from SoundMonitor.analize.normalizer import normalize_psd
+from SoundMonitor.settings import (
+    WELCH_WINDOW_SEC,
+    get_effective_sr,
+    FREQ_RANGE,
+    NORMALIZE_METHOD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +58,13 @@ def compute_psd(
     return freqs, *normalize_psd(psd=psd, method=NORMALIZE_METHOD, normalize_value=normalize_value)[:2]
 
 
-def predict_psd(audio: np.ndarray, predictor: BasePredictor, sr: int | None = None):
+def predict_psd(audio: np.ndarray, predictor: BasePredictor, sr: int | None = None, *args, **kwargs):
     freq, psd_live, success = compute_psd(audio, sr=sr, normalize=False)
 
     if not success:
         return freq, psd_live, success, 0, 0
 
-    is_on, score = predictor.predict(psd_live)
+    is_on, score = predictor.predict(psd_live, *args, **kwargs)
 
     return freq, psd_live, success, is_on, score
 
@@ -88,7 +92,7 @@ def extract_coarse_bands(psd_array, num_bands=4):
     return coarse_features / (norms + 1e-10)
 
 
-def compute_band_power_db(psd_array, sample_spacing=0.5):
+def compute_band_power_db(psd_array: np.ndarray, sample_spacing: float = 0.5) -> float:
     """Calculates total integrated power in a wide frequency band in dB.
 
     psd_array: (N, M) matrix or (M,) vector of PSD values

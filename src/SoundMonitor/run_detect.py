@@ -2,12 +2,11 @@ import asyncio
 import logging
 
 from SoundMonitor.async_mic import AsyncMic
-from SoundMonitor.audio_device import list_input_devices
-from SoundMonitor.db_writer_worker import db_writer_worker, db_cleanup_worker, init_db
+from SoundMonitor.services.audio_device import list_input_devices, PA
+from SoundMonitor.services.db_writer_worker import db_writer_worker, db_cleanup_worker, init_db
 from SoundMonitor.detector import detection_loop
-from SoundMonitor.handler_signal import setup_signal_handlers
-from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, TEMPLATE_DIR, DB_FILE, PREFERRED_RATES, DEFAULT_THRESHOLD
-from SoundMonitor.templates import load_templates, load_threshold
+from SoundMonitor.tools.handler_signal import setup_signal_handlers
+from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, DB_FILE, PREFERRED_RATES, DEFAULT_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +16,7 @@ async def run_detect(
     threshold_override: float | None = None,
     window_sec: float = ANALYSIS_WINDOW_SEC,
     plot: bool = False,
+    beep: bool = False,
 ) -> None:
     # psd_on, psd_off, freq, tmpl_sr = load_templates()
     # thr = load_threshold(override=threshold_override)
@@ -32,7 +32,7 @@ async def run_detect(
     logger.info(f"  Will try rates: {PREFERRED_RATES}")
     logger.info("  Ctrl+C to stop")
     logger.info("=" * 60)
-    list_input_devices()
+    list_input_devices(PA.create())
     logger.info("")
 
     shutdown_event = asyncio.Event()
@@ -67,6 +67,7 @@ async def run_detect(
             result_queue=result_queue,
             window_sec=window_sec,
             plot=plot,
+            beep=beep,
         )
     )
 

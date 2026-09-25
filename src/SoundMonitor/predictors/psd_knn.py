@@ -1,10 +1,10 @@
 import logging
 import numpy as np
 
-from SoundMonitor.base_predictor import BasePredictor
-from SoundMonitor.correlate import compute_aligned_signals_batch
-from SoundMonitor.normalizer import normalize_psd
-from SoundMonitor.numpy_normalizer import NumpyNormalizer, NumpyStandardScaler
+from SoundMonitor.predictors.base_predictor import BasePredictor
+from SoundMonitor.analize.correlate import compute_aligned_signals_batch
+from SoundMonitor.analize.normalizer import normalize_psd
+from SoundMonitor.analize.numpy_normalizer import NumpyNormalizer, NumpyStandardScaler
 from SoundMonitor.settings import NORMALIZE_METHOD, THRESHOLD_ON_SIM, THRESHOLD_ON_POWER_ALPHA
 
 logger = logging.getLogger(__name__)

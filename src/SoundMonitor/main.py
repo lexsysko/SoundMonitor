@@ -26,7 +26,7 @@ import asyncio
 import logging
 import sys
 
-from SoundMonitor.audio_device import list_input_devices
+from SoundMonitor.services.audio_device import list_input_devices, PA, list_output_devices, play_beep
 from SoundMonitor.calibrate import calibrate_from_templates
 from SoundMonitor.plot_psd import plot_psd_comparison
 from SoundMonitor.run_detect import run_detect
@@ -101,7 +101,7 @@ def main() -> None:
     )
     p_train.add_argument("-m", "--mode", choices=("auto", "on", "off"), default="auto")
     p_train.add_argument("--prune", action="store_true", help="Clearing all previous template files")
-    p_train.add_argument("--nobeep", action="store_true", help="Disable beep sound before start record")
+    p_train.add_argument("--nobeep", action="store_false", help="Disable beep sound before start record")
 
     sub.add_parser("calibrate", help="Re-compute threshold from existing templates")
     p_plot = sub.add_parser("plot", help="plot diagram from existing PSD on templates")
@@ -113,15 +113,24 @@ def main() -> None:
     p_det.add_argument("--threshold", type=float, default=None)
     p_det.add_argument("--window", type=float, default=ANALYSIS_WINDOW_SEC)
     p_det.add_argument("--plot", action="store_true")
+    p_det.add_argument("--beep", action="store_true", help="Play beep sound on change state")
 
     sub.add_parser("devices", help="List microphone devices")
+
+    p_beep = sub.add_parser("beep", help="play beep sound")
+    p_beep.add_argument("-d", "--device", type=int, default=None)
 
     args = parser.parse_args()
     setup_logger(args.loglevel)
 
     match args.cmd:
         case "devices":
-            list_input_devices()
+            with PA() as pa:
+                list_input_devices(pa)
+        case "beep":
+            with PA() as pa:
+                list_output_devices(pa)
+                play_beep(pa, device_index=args.device)
         case "train":
             try:
                 train(
@@ -149,6 +158,7 @@ def main() -> None:
                         threshold_override=args.threshold,
                         window_sec=args.window,
                         plot=args.plot,
+                        beep=args.beep,
                     )
                 )
             except KeyboardInterrupt:

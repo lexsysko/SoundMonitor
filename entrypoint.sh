@@ -9,10 +9,11 @@ fi
 
 if [ "${SET_MIXER:-}" = "1" ]; then
  echo "SETUP AUDIO MIXER..."
- amixer -c 1 sset 'Mic Boost' 0%
- amixer -c 1 sset 'Internal Mic Boost' 0%
- amixer -c 1 sset 'Capture' 80% cap
- amixer -c 1 sset Mic 100% mute
+ amixer -c ${DEVICE:-1} sset 'Mic Boost' 0%
+ amixer -c ${DEVICE:-1} sset 'Internal Mic Boost' 0%
+ amixer -c ${DEVICE:-1} sset 'Capture' ${CAPTURE_VOLUME:-80}% cap
+ amixer -c ${DEVICE:-1} sset Mic 100% mute
+ amixer -c ${DEVICE:-1} sset 'Speaker' ${SPEAKER_VOLUME:-40}%
 fi
 
 
@@ -26,9 +27,25 @@ if [ -n "${THRESHOLD:-}" ]; then
   THRESHOLD=" --threshold ${THRESHOLD}"
 fi
 
+if [ -n "${DEVICE:-}" ]; then
+  DEVICE=" --device ${DEVICE}"
+fi
+
+if [ -n "${DETECT_WINDOW:-}" ]; then
+  DETECT_WINDOW=" --window ${DETECT_WINDOW}"
+fi
+
+if [ -n "${LOGLEVEL:-WARNING}" ]; then
+  LOGLEVEL=" --loglevel ${LOGLEVEL}"
+fi
+
 if [ "${PLOT:-}" = "1" ]; then
   PLOT=" --plot"
 fi
 
-echo "\n\nRUNNING detect --loglevel=${LOGLEVEL:-WARNING}${THRESHOLD:-}${PLOT:-}..."
-exec python /app/src/SoundMonitor/main.py --loglevel=${LOGLEVEL:-WARNING} detect${THRESHOLD:-}${PLOT:-}
+if [ "${BEEP:-}" = "1" ]; then
+  BEEP=" --beep"
+fi
+
+echo "\n\nRUNNING detect ${LOGLEVEL}${THRESHOLD:-}${PLOT:-}${DEVICE:-}${BEEP:-}${DETECT_WINDOW:-} ..."
+exec python /app/src/SoundMonitor/main.py ${LOGLEVEL} detect${THRESHOLD:-}${PLOT:-}${DEVICE:-}${BEEP:-}${DETECT_WINDOW:-}

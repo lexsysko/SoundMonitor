@@ -1,9 +1,10 @@
 import logging
 import numpy as np
+from pyaudio import PyAudio
 from time import sleep
 
-from SoundMonitor.analizer import compute_psd
-from SoundMonitor.audio_device import list_input_devices, record_seconds, play_beep
+from SoundMonitor.analize.analizer import compute_psd
+from SoundMonitor.services.audio_device import list_input_devices, record_seconds, play_beep, PA
 from SoundMonitor.calibrate import calibrate_from_templates
 from SoundMonitor.enums import NormalizeMethod
 from SoundMonitor.settings import (
@@ -21,15 +22,22 @@ logger = logging.getLogger(__name__)
 
 
 def capture_label(
-    duration, device_index, label: str, idx, confirm: bool = True, normalize: bool = False, beep: bool = False
+    pa: PyAudio,
+    duration,
+    device_index,
+    label: str,
+    idx,
+    confirm: bool = True,
+    normalize: bool = False,
+    beep: bool = False,
 ) -> bool:
     if confirm:
         input(f"\n>>> Prepare '{label} [{idx}]' state, then press Enter to start recording…")
     else:
         logger.info(f"Start recording for '{label} [{idx}]' {normalize=}...")
     if beep:
-        play_beep()
-    audio, sr = record_seconds(duration, device_index)
+        play_beep(pa, device_index=device_index)
+    audio, sr = record_seconds(pa, duration, device_index)
     if len(audio) < sr * MIN_RECORD_SEC:
         logger.warning("Recording too short – try again.")
         return False
@@ -61,7 +69,8 @@ def train(
     prune: bool = False,
     beep: bool = True,
 ) -> None:
-    list_input_devices()
+    pa = PA.create()
+    list_input_devices(pa)
 
     buff = "\n" + "=" * 60
     buff += f"\nTRAINING MODE: {mode}"
@@ -89,7 +98,7 @@ def train(
         logger.info(buff)
         for idx in range(train_count):
             while True:
-                if capture_label(duration, device_index, label, idx, confirm=(idx == 0), beep=beep):
+                if capture_label(pa, duration, device_index, label, idx, confirm=(idx == 0), beep=beep):
                     logger.info(f"Sleeping {train_delay} seconds ...")
                     if idx < train_count - 1:
                         sleep(train_delay)
@@ -97,7 +106,7 @@ def train(
                 else:
                     logger.info("Sleeping 5 seconds ...")
                     sleep(5)
-
+    PA.terminate()
     calibrate_from_templates(verbose=True)
     logger.info("Training + calibration finished.")
     logger.info("Run:  python main.py detect")
