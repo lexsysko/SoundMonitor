@@ -26,7 +26,7 @@ import asyncio
 import logging
 import sys
 
-from SoundMonitor.audio_device import list_input_devices, PA, list_output_devices, play_beep
+from SoundMonitor.services.audio_device import list_input_devices, PA, list_output_devices, play_beep
 from SoundMonitor.calibrate import calibrate_from_templates
 from SoundMonitor.plot_psd import plot_psd_comparison
 from SoundMonitor.run_detect import run_detect

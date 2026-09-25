@@ -2,12 +2,11 @@ import asyncio
 import logging
 
 from SoundMonitor.async_mic import AsyncMic
-from SoundMonitor.audio_device import list_input_devices, PA
-from SoundMonitor.db_writer_worker import db_writer_worker, db_cleanup_worker, init_db
+from SoundMonitor.services.audio_device import list_input_devices, PA
+from SoundMonitor.services.db_writer_worker import db_writer_worker, db_cleanup_worker, init_db
 from SoundMonitor.detector import detection_loop
-from SoundMonitor.handler_signal import setup_signal_handlers
-from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, TEMPLATE_DIR, DB_FILE, PREFERRED_RATES, DEFAULT_THRESHOLD
-from SoundMonitor.templates import load_templates, load_threshold
+from SoundMonitor.tools.handler_signal import setup_signal_handlers
+from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, DB_FILE, PREFERRED_RATES, DEFAULT_THRESHOLD
 
 logger = logging.getLogger(__name__)
 

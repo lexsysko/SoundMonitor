@@ -4,11 +4,11 @@ import numpy as np
 import time
 from dataclasses import dataclass
 
-from SoundMonitor.analizer import predict_psd
+from SoundMonitor.analize.analizer import predict_psd
 from SoundMonitor.async_mic import AsyncMic
-from SoundMonitor.audio_device import play_beep
+from SoundMonitor.services.audio_device import play_beep
 from SoundMonitor.plot_psd import plot_psd_comparison
-from SoundMonitor.power_predictor import PowerPredictor
+from SoundMonitor.predictors.power_predictor import PowerPredictor
 from SoundMonitor.settings import (
     ANALYSIS_WINDOW_SEC,
     DETECT_INTERVAL_SEC,
@@ -17,7 +17,7 @@ from SoundMonitor.settings import (
     PLOT_LIVE_FILENAME,
     FILTER_METHOD,
 )
-from SoundMonitor.state_filter import StateFilter
+from SoundMonitor.filters.state_filter import StateFilter
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,8 @@
 import logging
 import numpy as np
 
-from SoundMonitor.analizer import compute_band_power_db
-from SoundMonitor.base_predictor import BasePredictor
+from SoundMonitor.analize.analizer import compute_band_power_db
+from SoundMonitor.predictors.base_predictor import BasePredictor
 from SoundMonitor.settings import THRESHOLD_ON_POWER_DB, THRESHOLD_ON_POWER_UP, THRESHOLD_ON_POWER_DOWN
 
 logger = logging.getLogger(__name__)

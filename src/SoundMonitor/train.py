@@ -3,8 +3,8 @@ import numpy as np
 from pyaudio import PyAudio
 from time import sleep
 
-from SoundMonitor.analizer import compute_psd
-from SoundMonitor.audio_device import list_input_devices, record_seconds, play_beep, PA
+from SoundMonitor.analize.analizer import compute_psd
+from SoundMonitor.services.audio_device import list_input_devices, record_seconds, play_beep, PA
 from SoundMonitor.calibrate import calibrate_from_templates
 from SoundMonitor.enums import NormalizeMethod
 from SoundMonitor.settings import (

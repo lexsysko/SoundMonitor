@@ -2,15 +2,13 @@ import logging
 import numpy as np
 from scipy.signal import butter, sosfiltfilt, welch
 
-from SoundMonitor.base_predictor import BasePredictor
-from SoundMonitor.normalizer import normalize_psd
-from SoundMonitor.psd_knn import PSD_KNN
+from SoundMonitor.predictors.base_predictor import BasePredictor
+from SoundMonitor.analize.normalizer import normalize_psd
 from SoundMonitor.settings import (
     WELCH_WINDOW_SEC,
     get_effective_sr,
     FREQ_RANGE,
     NORMALIZE_METHOD,
-    THRESHOLD_ON_POWER_DB,
 )
 
 logger = logging.getLogger(__name__)

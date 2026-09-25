@@ -5,10 +5,9 @@ from pathlib import Path
 
 import numpy as np
 
-from SoundMonitor.analizer import compute_band_power_db
+from SoundMonitor.analize.analizer import compute_band_power_db
 from SoundMonitor.enums import NormalizeMethod
-from SoundMonitor.normalizer import normalize_psd, get_concatenated_norm
-from SoundMonitor.settings import NORMALIZE_METHOD
+from SoundMonitor.analize.normalizer import normalize_psd, get_concatenated_norm
 
 logger = logging.getLogger(__name__)
 

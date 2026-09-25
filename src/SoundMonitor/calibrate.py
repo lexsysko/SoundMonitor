@@ -3,8 +3,8 @@ import logging
 import numpy as np
 import time
 
-from SoundMonitor.analizer import spectral_distance
-from SoundMonitor.normalizer import get_concatenated_norm, normalize_psd
+from SoundMonitor.analize.analizer import spectral_distance
+from SoundMonitor.analize.normalizer import get_concatenated_norm, normalize_psd
 from SoundMonitor.settings import TEMPLATE_DIR, THRESHOLD_FILE, NORMALIZE_METHOD
 from SoundMonitor.templates import load_templates
 

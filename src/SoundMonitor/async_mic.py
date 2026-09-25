@@ -6,14 +6,10 @@ import pyaudio
 from threading import Lock
 from typing import Deque, Tuple
 
-from SoundMonitor.audio_device import open_input_stream, PA
+from SoundMonitor.services.audio_device import open_input_stream, PA
 from SoundMonitor.settings import PREFERRED_RATES, set_effective_sr, BUFFER_SEC
 
 logger = logging.getLogger(__name__)
-
-
-def gey_pa():
-    pass
 
 
 class AsyncMic:

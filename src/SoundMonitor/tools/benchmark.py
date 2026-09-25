@@ -38,9 +38,7 @@ def spectral_distance(a, b):
     a, b = a.astype(np.float64), b.astype(np.float64)
     n = min(len(a), len(b))
     a, b = a[:n], b[:n]
-    return float(
-        1.0 - np.dot(a, b) / ((np.linalg.norm(a) + 1e-12) * (np.linalg.norm(b) + 1e-12))
-    )
+    return float(1.0 - np.dot(a, b) / ((np.linalg.norm(a) + 1e-12) * (np.linalg.norm(b) + 1e-12)))
 
 
 # fake templates + audio
@@ -94,29 +92,15 @@ async def bench_async(coro_fn, rounds=30, *args, **kwargs):
 
 
 async def main():
-    print(
-        f"SR={SR}, window={WINDOW_SEC}s, samples={N}, nperseg≈{nperseg_for(SR)}, {ROUNDS=}"
-    )
+    print(f"SR={SR}, window={WINDOW_SEC}s, samples={N}, nperseg≈{nperseg_for(SR)}, {ROUNDS=}")
     ms_direct = bench_sync(run_direct, rounds=ROUNDS)
     print(f"direct (blocking):     {ms_direct:7.2f} ms / analysis")
-    ms_thread_0 = await bench_async(
-        run_threaded, rounds=ROUNDS, spectral_distance_threaded=False
-    )
+    ms_thread_0 = await bench_async(run_threaded, rounds=ROUNDS, spectral_distance_threaded=False)
     print(f"\nto_thread compute_psd:    {ms_thread_0:7.2f} ms / analysis")
-    print(
-        f"difference:            {ms_thread_0 - ms_direct:+.2f} ms  "
-        f"({(ms_thread_0 / ms_direct - 1) * 100:+.0f}%)"
-    )
-    ms_thread_1 = await bench_async(
-        run_threaded, rounds=ROUNDS, spectral_distance_threaded=True
-    )
-    print(
-        f"\nto_thread + gather spectral_distances:    {ms_thread_1:7.2f} ms / analysis"
-    )
-    print(
-        f"difference:            {ms_thread_1 - ms_direct:+.2f} ms  "
-        f"({(ms_thread_1 / ms_direct - 1) * 100:+.0f}%)"
-    )
+    print(f"difference:            {ms_thread_0 - ms_direct:+.2f} ms  ({(ms_thread_0 / ms_direct - 1) * 100:+.0f}%)")
+    ms_thread_1 = await bench_async(run_threaded, rounds=ROUNDS, spectral_distance_threaded=True)
+    print(f"\nto_thread + gather spectral_distances:    {ms_thread_1:7.2f} ms / analysis")
+    print(f"difference:            {ms_thread_1 - ms_direct:+.2f} ms  ({(ms_thread_1 / ms_direct - 1) * 100:+.0f}%)")
     print("\nDone.")
 
 
