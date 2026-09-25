@@ -33,6 +33,7 @@ class PowerPredictor(BasePredictor):
             logger.debug(f"raw score {score:.4f} {smoothed=}")
             if not smoothed and score > 1.3:
                 score = 0.0
+                is_on = False
                 logger.warning(f"raw score penalties to 0.0000 as too high power level")
         # clip to 0...1
         score = max(0.0, min(score, 1.0))
