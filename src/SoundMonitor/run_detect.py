@@ -17,6 +17,7 @@ async def run_detect(
     threshold_override: float | None = None,
     window_sec: float = ANALYSIS_WINDOW_SEC,
     plot: bool = False,
+    beep: bool = False,
 ) -> None:
     # psd_on, psd_off, freq, tmpl_sr = load_templates()
     # thr = load_threshold(override=threshold_override)
@@ -67,6 +68,7 @@ async def run_detect(
             result_queue=result_queue,
             window_sec=window_sec,
             plot=plot,
+            beep=beep,
         )
     )
 

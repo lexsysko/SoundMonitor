@@ -5,7 +5,13 @@ from scipy.signal import butter, sosfiltfilt, welch
 from SoundMonitor.base_predictor import BasePredictor
 from SoundMonitor.normalizer import normalize_psd
 from SoundMonitor.psd_knn import PSD_KNN
-from SoundMonitor.settings import WELCH_WINDOW_SEC, get_effective_sr, FREQ_RANGE, NORMALIZE_METHOD, THRESHOLD_ON_POWER
+from SoundMonitor.settings import (
+    WELCH_WINDOW_SEC,
+    get_effective_sr,
+    FREQ_RANGE,
+    NORMALIZE_METHOD,
+    THRESHOLD_ON_POWER_DB,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +94,7 @@ def extract_coarse_bands(psd_array, num_bands=4):
     return coarse_features / (norms + 1e-10)
 
 
-def compute_band_power_db(psd_array, sample_spacing=0.5):
+def compute_band_power_db(psd_array: np.ndarray, sample_spacing: float = 0.5) -> float:
     """Calculates total integrated power in a wide frequency band in dB.
 
     psd_array: (N, M) matrix or (M,) vector of PSD values

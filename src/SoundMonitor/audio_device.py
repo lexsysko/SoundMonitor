@@ -204,7 +204,7 @@ def play_beep(
                 sleep(pause)
             stream.stop_stream()
             stream.close()
-            logger.info(f"  Audio opened at {rate} Hz")
+            logger.info(f"  Beep sound finished")
             break
 
         except Exception as e:

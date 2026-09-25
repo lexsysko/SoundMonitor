@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from SoundMonitor.analizer import compute_band_power_db
 from SoundMonitor.enums import NormalizeMethod
 from SoundMonitor.normalizer import normalize_psd, get_concatenated_norm
 from SoundMonitor.settings import NORMALIZE_METHOD
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def plot_psd_comparison(
     freqs: np.ndarray,
-    templates: dict[str, np.ndarray],
+    templates: dict[str, np.ndarray] | None = None,
     psd_live: np.ndarray | None = None,
     title: str = "PSD Spectrum Comparison",
     save_path: Path | str | None = None,
@@ -27,6 +28,8 @@ def plot_psd_comparison(
 
     fig = Figure(figsize=(10, 5))
     ax = fig.add_subplot(111)
+
+    templates = templates or {}
 
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -56,13 +59,22 @@ def plot_psd_comparison(
     y_min = None
     y_max = None
     for label, psd in templates.items():
+        power_db_idx = compute_band_power_db(psd, sample_spacing=1)
         psd = normalize_psd(psd[:n], normalize_value=normalize_value, method=normalize_method)[0]
         y_min = min(psd.min(), y_min or psd.min())
         y_max = max(psd.max(), y_max or psd.max())
-        ax.plot(f, psd, label=f"{label.upper()} Template", color=colors.get(label, None), linewidth=2, alpha=0.8)
+        ax.plot(
+            f,
+            psd,
+            label=f"{label.upper()} Last know. Power: {power_db_idx:.2f}dB",
+            color=colors.get(label, None),
+            linewidth=2,
+            alpha=0.8,
+        )
         ax.fill_between(f, psd, alpha=0.12, color=colors.get(label, "gray"))
         if len(psd) > 0:
             max_idx = np.argmax(psd)
+
             ax.plot(
                 f[max_idx],
                 psd[max_idx],
@@ -74,8 +86,16 @@ def plot_psd_comparison(
 
     # Plot live signal
     if psd_live is not None and len(psd_live) > 0:
+        power_db_live = compute_band_power_db(psd_live, sample_spacing=1)
         psd_live = normalize_psd(psd_live[:n], normalize_value=normalize_value, method=normalize_method)[0]
-        ax.plot(f, psd_live, label="Live Signal", color="black", linestyle="--", linewidth=1.5)
+        ax.plot(
+            f,
+            psd_live,
+            label=f"Live Signal. Power: {power_db_live:.2f}dB",
+            color="black",
+            linestyle="--",
+            linewidth=1.5,
+        )
         max_idx_live = np.argmax(psd_live)
         ax.plot(
             f[max_idx_live],

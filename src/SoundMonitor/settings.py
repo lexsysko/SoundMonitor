@@ -42,7 +42,7 @@ CHANNELS = 1
 CHUNK = 1024
 WELCH_WINDOW_SEC = 0.1857596371882086 * 2
 
-FREQ_RANGE = (float(environ.get("FREQ_RANGE_LOW", "88")), float(environ.get("FREQ_RANGE_HIGH", "102")))
+FREQ_RANGE = (float(environ.get("FREQ_RANGE_LOW", 80)), float(environ.get("FREQ_RANGE_HIGH", 108)))
 
 DEFAULT_THRESHOLD = 0.60
 SMOOTH_WINDOWS = int(environ.get("SMOOTH_WINDOWS", 30))
@@ -50,7 +50,9 @@ MIN_CONFIRM = int(SMOOTH_WINDOWS * 0.85)  # how many votes needed to change stat
 THRESHOLD_ON = float(environ.get("THRESHOLD_ON", 0.9))
 THRESHOLD_OFF = float(environ.get("THRESHOLD_OFF", 1.8))
 THRESHOLD_ON_POWER_ALPHA = float(environ.get("THRESHOLD_ON_POWER_ALPHA", 0.4))
-THRESHOLD_ON_POWER = float(environ.get("THRESHOLD_ON_POWER", -64))
+THRESHOLD_ON_POWER_DB = float(environ.get("THRESHOLD_ON_POWER_DB", -60.3))
+THRESHOLD_ON_POWER_UP = float(environ.get("THRESHOLD_ON_POWER_UP", 0.95))
+THRESHOLD_ON_POWER_DOWN = float(environ.get("THRESHOLD_ON_POWER_DOWN", 1.1))
 THRESHOLD_ON_SIM = float(environ.get("THRESHOLD_ON_SIM", 0.45))
 MIN_RECORD_SEC = 3.0
 SAFETY_MARGIN = 0.18
@@ -71,7 +73,7 @@ FILTER_THRESH_ON_DENSITY: float = float(environ.get("FILTER_THRESH_ON_DENSITY", 
 FILTER_THRESH_OFF_DENSITY: float = float(environ.get("FILTER_THRESH_OFF_DENSITY", 0.7))
 FILTER_THRESH_STREAK_PERC: int = int(environ.get("FILTER_THRESH_STREAK_PERC", 50))
 FILTER_THRESH_WEIGHTS_ON_DENSITY: float = float(environ.get("FILTER_THRESH_WEIGHTS_ON_DENSITY", 0.5))
-FILTER_THRESH_WEIGHTS_OFF_DENSITY: float = float(environ.get("FILTER_THRESH_WEIGHTS_OFF_DENSITY", 0.3))
+FILTER_THRESH_WEIGHTS_OFF_DENSITY: float = float(environ.get("FILTER_THRESH_WEIGHTS_OFF_DENSITY", 0.2))
 FILTER_THRESH_MIN_SCORE: float = float(environ.get("FILTER_THRESH_MIN_SCORE", 0.65))
 FILTER_METHOD: str = environ.get("FILTER_METHOD", "SCORED_WEIGHTED_DENSITY")
 if FILTER_METHOD.lower() not in AnalyzeMethods.__members__.values():

@@ -113,6 +113,7 @@ def main() -> None:
     p_det.add_argument("--threshold", type=float, default=None)
     p_det.add_argument("--window", type=float, default=ANALYSIS_WINDOW_SEC)
     p_det.add_argument("--plot", action="store_true")
+    p_det.add_argument("--beep", action="store_true", help="Play beep sound on change state")
 
     sub.add_parser("devices", help="List microphone devices")
 
@@ -157,6 +158,7 @@ def main() -> None:
                         threshold_override=args.threshold,
                         window_sec=args.window,
                         plot=args.plot,
+                        beep=args.beep,
                     )
                 )
             except KeyboardInterrupt:

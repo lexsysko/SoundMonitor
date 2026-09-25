@@ -20,7 +20,7 @@ class AsyncMic:
     """Non-blocking mic via PyAudio callback; auto rate fallback."""
 
     def __init__(self, device_index: int | None = None):
-        self.device_index = device_index
+        self._device_index = device_index
         self.sr: int = PREFERRED_RATES[0]
         self.buffer: Deque[float] = deque()
         self._pa = None
@@ -35,11 +35,19 @@ class AsyncMic:
             self.buffer.extend(audio.tolist())
         return None, pyaudio.paContinue
 
+    @property
+    def pa(self):
+        return self._pa
+
+    @property
+    def device_index(self):
+        return self._device_index
+
     def start(self) -> int:
         self._pa = PA.create()
         self._stream, self.sr = open_input_stream(
             self._pa,
-            device_index=self.device_index,
+            device_index=self._device_index,
             callback=self._callback,
         )
         set_effective_sr(self.sr)
