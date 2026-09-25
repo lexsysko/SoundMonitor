@@ -18,6 +18,8 @@ from SoundMonitor.settings import (
     DATA_PATH,
     PLOT_LIVE_FILENAME,
     FILTER_METHOD,
+    FILTER_CONFIRMED_STATE_CONFIRM_DURATION,
+    FILTER_CONFIRMED_STATE_MIN_INTERVAL,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,11 @@ async def detection_loop(
     # freq_templates = freq
     # predictor.fit(on_templates=psd_on, freq=freq, freq_low=FREQ_RANGE[0], freq_high=FREQ_RANGE[1])
     logger.info(f"  Detection loop running @ {mic.sr} Hz , {plot=}. (Ctrl+C to stop)")
-    confirmed_state_filter = ConfirmedStateFilter(initial_state=0)
+    confirmed_state_filter = ConfirmedStateFilter(
+        confirm_duration=FILTER_CONFIRMED_STATE_CONFIRM_DURATION,
+        min_interval=FILTER_CONFIRMED_STATE_MIN_INTERVAL,
+        initial_state=0,
+    )
     baseline: StateCommit = confirmed_state_filter.initial_commit()
     smoothed: int = baseline.state
     last_smoothed_raw: int = smoothed
@@ -90,10 +96,9 @@ async def detection_loop(
 
             smoothed_raw = state_filter.update(is_on, score)
             commit_state: StateCommit | None = confirmed_state_filter.update(smoothed_raw)
-            """
-            commit_state=StateCommit(state=1, event_at=1790370382.512521, committed_at=1790370442.7113695, kind='change')
-            """
-            logger.debug(f"{commit_state=}")
+            # result commit_state=StateCommit(state=1, event_at=1790370382.512521, committed_at=1790370442.7113695, kind='change')
+
+            # logger.debug(f"{commit_state=}")
 
             if commit_state is not None:
                 is_changed = commit_state.kind == "change"

@@ -97,9 +97,9 @@ class ConfirmedStateFilter:
         """
         mono_now = self._mono()
 
-        logger.debug(
-            f"{smoothed_state=} {self.confirmed_state=}  {self._pending_state=} {self._pending_since_mono=} {self._pending_since_wall=} "
-        )
+        # logger.debug(
+        #     f"{smoothed_state=} {self.confirmed_state=}  {self._pending_state=} {self._pending_since_mono=} {self._pending_since_wall=} "
+        # )
 
         if smoothed_state == self.confirmed_state:
             # Matches what's already confirmed -> any pending candidate
@@ -113,7 +113,7 @@ class ConfirmedStateFilter:
             self._pending_state = None
             self._pending_since_mono = None
             self._pending_since_wall = None
-            logger.debug(f"noting changed:  smoothed_state == confirmed_state")
+            # logger.debug(f"noting changed:  smoothed_state == confirmed_state")
 
             return None
 

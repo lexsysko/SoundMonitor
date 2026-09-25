@@ -14,6 +14,7 @@ class PowerPredictor(BasePredictor):
         self.threshold_power = threshold_power or (THRESHOLD_ON_POWER_DB or -61)
         self.power_on_db = self.threshold_power * (THRESHOLD_ON_POWER_UP or 0.93)
         self.power_off_db = self.threshold_power * (THRESHOLD_ON_POWER_DOWN or 1.1)
+        self.use_over_power_penalty: bool = False
 
     def predict(self, psd: np.ndarray, *args, **kwargs) -> tuple[int, float]:
         """
@@ -29,7 +30,7 @@ class PowerPredictor(BasePredictor):
         )
         is_on = bool(power_db >= self.threshold_power)
         score = float((power_db - self.power_off_db) / (self.power_on_db - self.power_off_db + 1e-6))
-        if smoothed is not None:
+        if self.use_over_power_penalty and smoothed is not None:
             logger.debug(f"raw score {score:.4f} {smoothed=}")
             if not smoothed and score > 1.3:
                 score = 0.0
