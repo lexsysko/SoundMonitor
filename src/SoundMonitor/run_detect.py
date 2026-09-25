@@ -6,7 +6,7 @@ from SoundMonitor.services.audio_device import list_input_devices, PA
 from SoundMonitor.services.db_writer_worker import db_writer_worker, db_cleanup_worker, init_db
 from SoundMonitor.detector import detection_loop
 from SoundMonitor.tools.handler_signal import setup_signal_handlers
-from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, DB_FILE, PREFERRED_RATES, DEFAULT_THRESHOLD
+from SoundMonitor.settings import ANALYSIS_WINDOW_SEC, DB_FILE, PREFERRED_RATES, DEFAULT_THRESHOLD, APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ async def run_detect(
     psd_on, psd_off, freq, thr = None, None, None, DEFAULT_THRESHOLD
 
     logger.info("=" * 60)
-    logger.info("LIVE ASYNC DETECTION")
+    logger.info(f"LIVE ASYNC DETECTION v{APP_VERSION}")
     # logger.info(f"  Template dir : {TEMPLATE_DIR}")
     # logger.info(f"  Template SR  : {tmpl_sr} Hz")
     # logger.info(f"  Threshold    : {thr:.3f}")

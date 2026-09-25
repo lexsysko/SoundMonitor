@@ -97,6 +97,10 @@ class ConfirmedStateFilter:
         """
         mono_now = self._mono()
 
+        logger.debug(
+            f"{smoothed_state=} {self.confirmed_state=}  {self._pending_state=} {self._pending_since_mono=} {self._pending_since_wall=} "
+        )
+
         if smoothed_state == self.confirmed_state:
             # Matches what's already confirmed -> any pending candidate
             # for the opposite state was noise. Discard it, no cooldown
@@ -109,6 +113,8 @@ class ConfirmedStateFilter:
             self._pending_state = None
             self._pending_since_mono = None
             self._pending_since_wall = None
+            logger.debug(f"noting changed:  smoothed_state == confirmed_state")
+
             return None
 
         if self._pending_state != smoothed_state:
@@ -124,6 +130,8 @@ class ConfirmedStateFilter:
         # Same candidate persisting - check both gates, monotonic only.
         held_for = mono_now - self._pending_since_mono
         since_last_change = float("inf") if self._confirmed_at_mono is None else mono_now - self._confirmed_at_mono
+
+        logger.debug(f"{held_for=} {since_last_change=}  {self.min_interval=} {self.confirm_duration=}")
 
         if held_for >= self.confirm_duration and since_last_change >= self.min_interval:
             event_at = self._pending_since_wall  # true onset, Unix ts
