@@ -31,6 +31,10 @@ if [ -n "${DEVICE:-}" ]; then
   DEVICE=" --device ${DEVICE}"
 fi
 
+if [ -n "${DETECT_WINDOW:-}" ]; then
+  DETECT_WINDOW=" --window ${DETECT_WINDOW}"
+fi
+
 if [ -n "${LOGLEVEL:-WARNING}" ]; then
   LOGLEVEL=" --loglevel ${LOGLEVEL}"
 fi
@@ -43,5 +47,5 @@ if [ "${BEEP:-}" = "1" ]; then
   BEEP=" --beep"
 fi
 
-echo "\n\nRUNNING detect ${LOGLEVEL}${THRESHOLD:-}${PLOT:-}${DEVICE:-}${BEEP:-} ..."
-exec python /app/src/SoundMonitor/main.py ${LOGLEVEL} detect${THRESHOLD:-}${PLOT:-}${DEVICE:-}${BEEP:-}
+echo "\n\nRUNNING detect ${LOGLEVEL}${THRESHOLD:-}${PLOT:-}${DEVICE:-}${BEEP:-}${DETECT_WINDOW:-} ..."
+exec python /app/src/SoundMonitor/main.py ${LOGLEVEL} detect${THRESHOLD:-}${PLOT:-}${DEVICE:-}${BEEP:-}${DETECT_WINDOW:-}

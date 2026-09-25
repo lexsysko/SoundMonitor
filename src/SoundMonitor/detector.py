@@ -62,6 +62,7 @@ async def detection_loop(
     # freq_templates = freq
     # predictor.fit(on_templates=psd_on, freq=freq, freq_low=FREQ_RANGE[0], freq_high=FREQ_RANGE[1])
     logger.info(f"  Detection loop running @ {mic.sr} Hz , {plot=}. (Ctrl+C to stop)")
+    smoothed = None
     try:
         while True:
             audio = mic.get_recent(window_sec)
@@ -71,7 +72,7 @@ async def detection_loop(
                 continue
 
             freq, psd_live, success, is_on, score = await asyncio.to_thread(
-                predict_psd, audio=audio, predictor=predictor, sr=mic.sr
+                predict_psd, audio=audio, predictor=predictor, sr=mic.sr, smoothed=smoothed
             )
 
             freq_list = [str(round(f, 1)) for f in freq if f]

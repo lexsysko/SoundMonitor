@@ -60,13 +60,13 @@ def compute_psd(
     return freqs, *normalize_psd(psd=psd, method=NORMALIZE_METHOD, normalize_value=normalize_value)[:2]
 
 
-def predict_psd(audio: np.ndarray, predictor: BasePredictor, sr: int | None = None):
+def predict_psd(audio: np.ndarray, predictor: BasePredictor, sr: int | None = None, *args, **kwargs):
     freq, psd_live, success = compute_psd(audio, sr=sr, normalize=False)
 
     if not success:
         return freq, psd_live, success, 0, 0
 
-    is_on, score = predictor.predict(psd_live)
+    is_on, score = predictor.predict(psd_live, *args, **kwargs)
 
     return freq, psd_live, success, is_on, score
 
