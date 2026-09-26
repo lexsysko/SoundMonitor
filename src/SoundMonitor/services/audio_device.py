@@ -7,7 +7,7 @@ from scipy.signal import resample
 from time import sleep
 from typing import Tuple, Mapping
 
-from SoundMonitor.settings import CHUNK, set_effective_sr, PREFERRED_RATES, CHANNELS
+from SoundMonitor.settings import CHUNK, set_effective_sr, PREFERRED_RATES, CHANNELS, DATA_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +254,33 @@ def play_raw_sound(
             logger.error(f"  Rate {rate} Hz not accepted: {e}")
 
 
+def play_list_states(audio_folder: str = "audio", max_play: int = 10):
+    from SoundMonitor.tools.np_data_lodader import load_audio, get_audio_files
+
+    data_path = DATA_PATH / audio_folder
+    files_on = get_audio_files(data_path=data_path, state_str="on")
+    files_off = get_audio_files(data_path=data_path, state_str="off")
+    device_index = int(sys.argv[1]) if len(sys.argv) > 1 else None
+    max_play = 10
+
+    with PA() as pa:
+        list_output_devices(pa)
+        # play_beep(pa, device_index=device_index)
+        logger.info(f"ON. {max_play} / {len(files_on)} ")
+        for i, filename in enumerate(files_on[:max_play]):
+            logger.info(f"{i}. {filename} ")
+            audio, sr = load_audio(filename)
+            play_raw_sound(pa, audio, sr)
+            sleep(1)
+
+        logger.info(f"OFF. {max_play} / {len(files_on)} ")
+        for i, filename in enumerate(files_off[:max_play]):
+            logger.info(f"{i}. {filename} ")
+            audio, sr = load_audio(filename)
+            play_raw_sound(pa, audio, sr)
+            sleep(1)
+
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.DEBUG,
@@ -262,7 +289,5 @@ if __name__ == "__main__":
         # stream=sys.stdout,
         force=True,
     )
-    device_index = int(sys.argv[1]) if len(sys.argv) > 1 else None
-    with PA() as pa:
-        list_output_devices(pa)
-        play_beep(pa, device_index=device_index)
+
+    play_list_states()

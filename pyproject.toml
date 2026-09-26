@@ -96,6 +96,4 @@ max-line-length = 120
 exclude-newer = "7 days"
 exclude-newer-package = { some-urgent-package = false }
 
-[dependency-groups]
-cnn = []
 

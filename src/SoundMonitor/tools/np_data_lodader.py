@@ -9,6 +9,18 @@ from SoundMonitor.settings import DATA_PATH
 logger = logging.getLogger(__name__)
 
 
+def get_audio_files(
+    data_path: Path,
+    state_str: str,
+    prefix: str = "audio",
+    extension: str = "npz",
+) -> list[Path]:
+    clean_state = state_str.strip().lower()
+    pattern = f"{prefix}_{clean_state}_*.{extension}"
+    files: list = list(data_path.glob(pattern))
+    return files
+
+
 def get_next_audio_filepath(
     data_path: Path,
     state_str: str,
