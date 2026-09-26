@@ -12,9 +12,11 @@ dependencies = [
 
 [dependency-groups]
 cnn = [
+    "resampy>=0.4.3",
     "scikit-learn>=1.9.1",
     "scipy>=1.18.1",
     "scipy-stubs~=1.18.1",
+    "soundfile>=0.14.0",
     "torch>=2.14.0",
     "torchaudio>=2.11.0",
 ]
