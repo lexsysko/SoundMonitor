@@ -1,8 +1,9 @@
 import asyncio
 import logging
-import numpy as np
 import time
 from dataclasses import dataclass
+
+import numpy as np
 
 from SoundMonitor.analize.analizer import predict_psd
 from SoundMonitor.async_mic import AsyncMic
@@ -20,7 +21,9 @@ from SoundMonitor.settings import (
     FILTER_METHOD,
     FILTER_CONFIRMED_STATE_CONFIRM_DURATION,
     FILTER_CONFIRMED_STATE_MIN_INTERVAL,
+    SAVE_AUDIO,
 )
+from SoundMonitor.tools.np_data_lodader import get_next_audio_filepath, save_smoothed_audio
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +171,17 @@ async def detection_loop(
                             templates=last_smoothed_psd,
                             psd_live=psd_live,
                             save_path=DATA_PATH / PLOT_LIVE_FILENAME,
+                        )
+                    )
+                if SAVE_AUDIO:
+                    asyncio.create_task(
+                        asyncio.to_thread(
+                            save_smoothed_audio,
+                            audio=audio,
+                            sr=mic.sr,
+                            trusted_state_str=trusted_state_str,
+                            data_path=DATA_PATH / "audio",
+                            limit=500,
                         )
                     )
 
