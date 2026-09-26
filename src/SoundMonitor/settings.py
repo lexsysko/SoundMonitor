@@ -67,6 +67,8 @@ try:
 except ValueError as e:
     raise ValueError(str(e))
 
+SAVE_AUDIO: bool = environ.get("SAVE_AUDIO", "f").lower()[0] == "t"
+
 
 FILTER_WINDOW_SIZE = int(environ.get("FILTER_WINDOW_SIZE", 30))
 FILTER_THRESH_ON_DENSITY: float = float(environ.get("FILTER_THRESH_ON_DENSITY", 0.8))

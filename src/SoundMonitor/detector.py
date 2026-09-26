@@ -20,7 +20,9 @@ from SoundMonitor.settings import (
     FILTER_METHOD,
     FILTER_CONFIRMED_STATE_CONFIRM_DURATION,
     FILTER_CONFIRMED_STATE_MIN_INTERVAL,
+    SAVE_AUDIO,
 )
+from SoundMonitor.tools.np_data_lodader import save_audio
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +172,9 @@ async def detection_loop(
                             save_path=DATA_PATH / PLOT_LIVE_FILENAME,
                         )
                     )
+                if SAVE_AUDIO:
+                    filename = DATA_PATH / f"audio_{trusted_state_str.strip().lower()}.npz"
+                    asyncio.create_task(asyncio.to_thread(save_audio, audio=audio, sr=mic.sr, filename=filename))
 
             if beep and smoothed_raw != last_smoothed_raw:
                 last_smoothed_raw = smoothed_raw
