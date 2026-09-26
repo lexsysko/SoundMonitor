@@ -1,7 +1,9 @@
 import logging
 import numpy as np
 import os
+
 import sys
+from scipy.signal import resample
 from time import sleep
 from typing import Tuple, Mapping
 
@@ -205,6 +207,47 @@ def play_beep(
             stream.stop_stream()
             stream.close()
             logger.info(f"  Beep sound finished")
+            break
+
+        except Exception as e:
+            logger.error(f"  Rate {rate} Hz not accepted: {e}")
+
+
+def play_raw_sound(
+    pa: pyaudio.PyAudio,
+    audio: np.ndarray,
+    audio_rate: int | None = None,
+    device_rate: int | None = None,
+    device_index: int | None = None,
+):
+
+    device_rates = (device_rate,) if device_rate else PREFERRED_RATES
+
+    # force to convert to mono if audio has more than one channel
+    if audio.ndim > 1:
+        audio = np.mean(audio, axis=1)
+
+    # Open output stream
+    stream = None
+    for rate in device_rates:
+        kwargs = dict(format=pyaudio.paFloat32, channels=1, rate=rate, output=True)
+        if device_index is not None:
+            kwargs["output_device_index"] = device_index
+        try:
+            with suppress_fd_stderr():
+                stream = pa.open(**kwargs)
+
+            play_audio = audio
+
+            if audio_rate and rate != audio_rate:
+                target_len = int(len(audio) * rate / audio_rate)
+                play_audio = resample(audio, target_len)
+
+            stream.write(np.ascontiguousarray(np.clip(play_audio, -1.0, 1.0).astype(np.float32)).tobytes())
+
+            stream.stop_stream()
+            stream.close()
+            logger.info(f"  Play sound finished")
             break
 
         except Exception as e:
