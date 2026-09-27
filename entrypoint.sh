@@ -11,7 +11,7 @@ if [ "${SET_MIXER:-}" = "1" ]; then
  echo "SETUP AUDIO MIXER..."
  amixer -c ${DEVICE:-1} sset 'Mic Boost' 0%
  amixer -c ${DEVICE:-1} sset 'Internal Mic Boost' 0%
- amixer -c ${DEVICE:-1} sset 'Capture' ${CAPTURE_VOLUME:-80}% cap
+ amixer -c ${DEVICE:-1} sset 'Capture' ${CAPTURE_VOLUME:-90}% cap
  amixer -c ${DEVICE:-1} sset Mic 100% mute
  amixer -c ${DEVICE:-1} sset 'Speaker' ${SPEAKER_VOLUME:-40}%
 fi
