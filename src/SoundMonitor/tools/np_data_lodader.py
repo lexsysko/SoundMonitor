@@ -44,8 +44,13 @@ def get_next_audio_filepath(
 
 
 def save_audio(audio: np.ndarray, sr: int, filename: Path | None = None):
-    filename = filename or DATA_PATH / "audio.npz"
-    np.savez_compressed(filename, audio=audio, sr=sr)
+    filename: Path = filename or DATA_PATH / "audio.npz"
+    if filename.suffix == ".wav":
+        from scipy.io import wavfile
+
+        wavfile.write(filename, sr, audio)
+    else:
+        np.savez_compressed(filename, audio=audio, sr=sr)
     logger.info(f"Saved audio file : {filename}")
 
 
@@ -53,9 +58,17 @@ def load_audio(filename: Path | None = None) -> tuple[np.ndarray, int]:
     filename = filename or DATA_PATH / "audio.npz"
     if not filename.exists():
         raise FileNotFoundError("Audio file does not exist")
-    data = np.load(filename)
+
+    if filename.suffix == ".wav":
+        from scipy.io import wavfile
+
+        samplerate, audio = wavfile.read(filename)
+    else:
+        data = np.load(filename)
+        samplerate, audio = data["sr"], data["audio"]
+
     logger.info(f"Loaded audio file : {filename}")
-    return data["audio"], data["sr"]
+    return audio, samplerate
 
 
 def save_smoothed_audio(
