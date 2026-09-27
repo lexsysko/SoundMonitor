@@ -255,18 +255,21 @@ def play_raw_sound(
             logger.error(f"  Rate {rate} Hz not accepted: {e}")
 
 
-def convert_to_wav(audio_folder: str = "audio", id: int | None = None, max_play: int = 10):
+def convert_npz_to_wav(audio_folder: str = "audio", id: int | None = None, max_play: int | None = None):
     from SoundMonitor.tools.np_data_lodader import load_audio, get_audio_files, save_audio
 
     data_path = DATA_PATH / audio_folder
-    files = get_audio_files(data_path=data_path, state_str="*")
-    max_play = 10 if id is None else None
+    files = get_audio_files(data_path=data_path, state_str="*", extension="npz")
+    max_play = max_play if id is None else None
     for i, filename in enumerate(files[:max_play]):
         if id is not None and not filename.stem.endswith(str(id)):
             continue
+        dest_filename = filename.with_suffix(".wav")
+        if dest_filename.exists():
+            continue
         logger.info(f"{i}. {filename} ")
         audio, sr = load_audio(filename)
-        save_audio(audio=audio, sr=sr, filename=filename.with_suffix(".wav"))
+        save_audio(audio=audio, sr=sr, filename=dest_filename)
 
 
 def play_list_states(
@@ -318,5 +321,6 @@ if __name__ == "__main__":
         # stream=sys.stdout,
         force=True,
     )
-    id = int(sys.argv[1]) if len(sys.argv) > 1 else None
-    play_list_states(id=id)
+    convert_npz_to_wav()
+    # id = int(sys.argv[1]) if len(sys.argv) > 1 else None
+    # play_list_states(id=id)
