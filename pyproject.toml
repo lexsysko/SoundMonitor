@@ -1,6 +1,6 @@
 [project]
 name = "SoundMonitor"
-version = "0.5.1"
+version = "0.5.2"
 requires-python = ">=3.13"
 dependencies = [
     "aiosqlite>=0.22.1",
@@ -70,4 +70,7 @@ max-line-length = 120
 [tool.uv]
 exclude-newer = "7 days"
 exclude-newer-package = { some-urgent-package = false }
+
+[dependency-groups]
+cnn = []
 

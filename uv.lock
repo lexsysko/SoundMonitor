@@ -563,7 +563,7 @@ wheels = [
 
 [[package]]
 name = "soundmonitor"
-version = "0.5.1"
+version = "0.5.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -585,3 +585,6 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.18.1" },
     { name = "scipy-stubs", specifier = "~=1.18.1" },
 ]
+
+[package.metadata.requires-dev]
+cnn = []

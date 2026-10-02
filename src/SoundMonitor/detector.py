@@ -1,8 +1,9 @@
 import asyncio
 import logging
-import numpy as np
 import time
 from dataclasses import dataclass
+
+import numpy as np
 
 from SoundMonitor.analize.analizer import predict_psd
 from SoundMonitor.async_mic import AsyncMic
@@ -18,7 +19,11 @@ from SoundMonitor.settings import (
     DATA_PATH,
     PLOT_LIVE_FILENAME,
     FILTER_METHOD,
+    FILTER_CONFIRMED_STATE_CONFIRM_DURATION,
+    FILTER_CONFIRMED_STATE_MIN_INTERVAL,
+    SAVE_AUDIO,
 )
+from SoundMonitor.tools.np_data_lodader import get_next_audio_filepath, save_smoothed_audio
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +64,19 @@ async def detection_loop(
     # predictor = PSD_KNN(crop_live_freq_range=CROP_LIVE_FREQ_RANGE)
     predictor = PowerPredictor()
     state_filter = StateFilter(method=FILTER_METHOD)
-    confirmed_state_filter = ConfirmedStateFilter()
     # logger.info(f"  Starting learning psd_knn")
     # freq_templates = freq
     # predictor.fit(on_templates=psd_on, freq=freq, freq_low=FREQ_RANGE[0], freq_high=FREQ_RANGE[1])
     logger.info(f"  Detection loop running @ {mic.sr} Hz , {plot=}. (Ctrl+C to stop)")
-    smoothed = None
-    baseline = confirmed_state_filter.initial_commit()
+    confirmed_state_filter = ConfirmedStateFilter(
+        confirm_duration=FILTER_CONFIRMED_STATE_CONFIRM_DURATION,
+        min_interval=FILTER_CONFIRMED_STATE_MIN_INTERVAL,
+        initial_state=0,
+    )
+    baseline: StateCommit = confirmed_state_filter.initial_commit()
+    smoothed: int = baseline.state
+    last_smoothed_raw: int = smoothed
+    detection_result: DetectionResult | None = None
     logger.debug(f"confirmed_state_filter t=:00  -> WRITE ({baseline.kind}) state={baseline.state}")
     try:
         while True:
@@ -86,16 +97,31 @@ async def detection_loop(
                 await asyncio.sleep(10)
                 continue
 
-            smoothed = state_filter.update(is_on, score)
-            commit_state: StateCommit | None = confirmed_state_filter.update(smoothed)
-            logger.debug(f"{commit_state=}")
+            smoothed_raw = state_filter.update(is_on, score)
+            commit_state: StateCommit | None = confirmed_state_filter.update(smoothed_raw)
+            # result commit_state=StateCommit(state=1, event_at=1790370382.512521, committed_at=1790370442.7113695, kind='change')
+
+            # logger.debug(f"{commit_state=}")
+
+            if commit_state is not None:
+                is_changed = commit_state.kind == "change"
+                if is_changed:
+                    smoothed = commit_state.state
+                    detection_result = DetectionResult(
+                        timestamp=commit_state.event_at,
+                        state=smoothed,  # trusted state
+                        d_on=score,
+                        d_off=score,
+                    )
+            else:
+                is_changed = False
 
             # Logging
             state_str = "ON " if is_on else "OFF"
-            is_changed = smoothed != last_smoothed and last_smoothed is not None
+            # is_changed = smoothed != last_smoothed and last_smoothed is not None
             marker = " <<<" if is_changed else ""
 
-            if is_changed and state_filter.is_history_ready():
+            if is_changed:
                 sm_state_str = "on" if smoothed else "off"
                 if sm_state_str in last_smoothed_psd:
                     # average value of all previous psd stated
@@ -106,27 +132,31 @@ async def detection_loop(
                     last_smoothed_psd[sm_state_str] = psd_live
 
             trusted_state_str = "ON " if smoothed else "OFF"
-            logger.info(f"STATE: {state_str}, SCORE: {score:.4f}, TRUSTED STATE: {trusted_state_str}{marker}")
+            logger.info(
+                f"STATE: {state_str}, SCORE: {score:.4f}, {smoothed_raw=}, TRUSTED STATE: {trusted_state_str}{marker}"
+            )
 
-            last_smoothed = smoothed
             periodic_write = (time.monotonic() - last_written_time) > PERIODIC_WRITE_TIME
 
             if state_filter.is_history_ready() and periodic_write:
                 hb = confirmed_state_filter.heartbeat(min_gap=60)
+                if hb is not None:
+                    detection_result = DetectionResult(
+                        timestamp=hb.event_at,
+                        state=smoothed,  # trusted state
+                        d_on=score,
+                        d_off=score,
+                    )
+
                 logger.debug(
                     f"confirmed_state_filter  (heartbeat tick) -> {'WRITE ' + hb.kind if hb else '(suppressed)'}  {hb=}"
                 )
 
             # --- DB only on trusted state change ---
-            if state_filter.is_history_ready() and (last_written is None or smoothed != last_written or periodic_write):
-                result = DetectionResult(
-                    timestamp=time.time(),
-                    state=smoothed,  # trusted state
-                    d_on=score,
-                    d_off=score,
-                )
+            if detection_result is not None:
                 try:
-                    result_queue.put_nowait(result.to_sql_list())
+                    result_queue.put_nowait(detection_result.to_sql_list())
+                    detection_result = None
                 except asyncio.QueueFull:
                     logger.warning("Queue full, skipping")
 
@@ -134,17 +164,6 @@ async def detection_loop(
                 last_written_time = time.monotonic()
                 last_written = smoothed
                 if plot:
-                    idx = 0
-                    # if freq_templates is not None:
-                    #     mask = (freq_templates >= FREQ_RANGE[0]) & (freq_templates <= FREQ_RANGE[1])
-                    #     psd_on_t = psd_on[idx][mask]
-                    #     psd_off_t = psd_off[idx][mask]
-                    # else:
-                    #     psd_on_t = psd_on[idx]
-                    #     psd_off_t = psd_off[idx]
-                    # templates = {"on": psd_on_t, "off": psd_off_t}
-                    # templates = {"on": psd_on_t}
-                    # templates = {}
                     asyncio.create_task(
                         asyncio.to_thread(
                             plot_psd_comparison,
@@ -154,8 +173,20 @@ async def detection_loop(
                             save_path=DATA_PATH / PLOT_LIVE_FILENAME,
                         )
                     )
+                if SAVE_AUDIO:
+                    asyncio.create_task(
+                        asyncio.to_thread(
+                            save_smoothed_audio,
+                            audio=audio,
+                            sr=mic.sr,
+                            trusted_state_str=trusted_state_str,
+                            data_path=DATA_PATH / "audio",
+                            limit=500,
+                        )
+                    )
 
-            if beep and is_changed:
+            if beep and smoothed_raw != last_smoothed_raw:
+                last_smoothed_raw = smoothed_raw
                 asyncio.create_task(asyncio.to_thread(play_beep, pa=mic.pa, device_index=mic.device_index))
 
             await asyncio.sleep(interval_sec)
