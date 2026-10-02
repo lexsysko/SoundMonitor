@@ -1,4 +1,42 @@
-# HOST SOUND MIXER
+# SoundMonitor
+
+SoundMonitor is an IoT sound and acoustic pattern monitoring tool designed to capture live audio, analyze spectral characteristics
+(PSD / Power), detect target operational states (e.g., compressor/device ON/OFF), and record state transitions to a SQLite
+database.
+
+---
+
+## Predictors & Detection Methods
+
+SoundMonitor uses modular predictors inheriting from `BasePredictor` to classify audio states from Power Spectral Density (PSD)
+analysis:
+
+### 1. `PowerPredictor` *(Currently in use)*
+
+- **Location:** `SoundMonitor.predictors.power_predictor.PowerPredictor`
+- **Mechanism:** Computes the band power in dB from the PSD signal (`compute_band_power_db`).
+- **Classification:** Compares the computed dB level against configured threshold levels (`THRESHOLD_ON_POWER_DB`, with hysteresis
+  bounds `THRESHOLD_ON_POWER_UP` and `THRESHOLD_ON_POWER_DOWN`).
+- **Scoring:** Generates normalized confidence scores `[0.0, 1.0]` based on relative power levels between the ON and OFF bounds
+  and applies penalty filtering for out-of-bounds power surges when evaluating smoothed states.
+
+### 2. `PSD_KNN` *(Alternative / Not currently active)*
+
+- **Location:** `SoundMonitor.predictors.psd_knn.PSD_KNN`
+- **Mechanism:** Template-matching k-Nearest Neighbors classifier on normalized PSD features.
+- **Features & Alignment:**
+    - Employs signal alignment (`compute_aligned_signals_batch`) via cross-correlation against baseline templates.
+    - Normalizes PSD vectors (e.g. L2 normalization and standard scaling) and extracts peak frequencies and frequency band
+      metrics.
+    - Computes cosine similarity / distance against recorded training templates (`template_on_*.npz` and `template_off_*.npz`).
+- **Status:** Maintained in codebase as an alternative template-based classifier; `PowerPredictor` is currently instantiated in
+  `detector.py`.
+
+---
+
+## Host Sound Mixer Configuration
+
+Configure input capture and microphone settings using ALSA mixer:
 
 ```bash
 sudo amixer -c 1 sset Capture 80% cap
@@ -17,21 +55,19 @@ Simple mixer control 'Mic',0
   Mono:
   Front Left: Playback 31 [100%] [12.00dB] [off]
   Front Right: Playback 31 [100%] [12.00dB] [off]
-  
-
 ```
 
-## TRAINED DATA on DOCKER
+---
 
-.env
+## Training Data on Docker
+
+Set `WAITER=1` in your `.env` file to keep the container running for manual training:
 
 ```dotenv
 WAITER=1
 ```
 
-WAITER=1
-
-### Train
+### Running Training
 
 ```bash
 docker compose exec -it snd-monitor bash
@@ -56,8 +92,7 @@ Will try sample rates: [44100, 48000, 16000]
 2026-09-21 23:26:05 [INFO] SoundMonitor.audio_device:   Audio opened at 44100 Hz
 2026-09-21 23:26:05 [INFO] SoundMonitor.audio_device:   Recording 8.0s @ 44100 Hz …
 2026-09-21 23:26:16 [INFO] SoundMonitor.audio_device:   Recording done
-2026-09-21 23:26:17 [INFO] SoundMonitor.templates:   Saved template → /app/data/templates/template_on_000
-.npz  (sr=44100)
+2026-09-21 23:26:17 [INFO] SoundMonitor.templates:   Saved template → /app/data/templates/template_on_000.npz  (sr=44100)
 2026-09-21 23:26:17 [INFO] SoundMonitor.train:   Top peaks (Hz) from 108: 97, 94, 100, 92, 102
 2026-09-21 23:26:17 [INFO] SoundMonitor.train: Sleeping 10 seconds ...
 
@@ -90,55 +125,48 @@ Will try sample rates: [44100, 48000, 16000]
 2026-09-21 23:41:02 [INFO] SoundMonitor.calibrate: ============================================================
 ```
 
-### Test detection
+### Test Detection
 
 ```bash
 docker compose exec -it snd-monitor bash
 root@f83591478a80:/app# cd src/SoundMonitor/
-root@f83591478a80:/app/src/SoundMonitor# python main.py --loglevel=DEBUG detect --plot 
-
+root@f83591478a80:/app/src/SoundMonitor# python main.py --loglevel=DEBUG detect --plot
 ```
 
-### BACKUP
+---
 
-- DOCKER COMPOSE
+## Backup and Restore
 
-```bash
-docker compose run --rm snd-monitor  tar -czf - -C /app/data . > ./data/backup/data_volume_backup.tar.gz
-```
+### Backup
 
-- SSH + DOCKER IMAGE alpine
+- **Docker Compose:**
+  ```bash
+  docker compose run --rm snd-monitor tar -czf - -C /app/data . > ./data/backup/data_volume_backup.tar.gz
+  ```
 
-```bash
-ssh user@remote "docker run --rm -v t-mon_snd_monitor_data:/app/data alpine tar -czf - -C /app/data ." > ./data/backup/data_volume_backup.tar.gz
-```
+- **SSH + Docker Image Alpine:**
+  ```bash
+  ssh user@remote "docker run --rm -v t-mon_snd_monitor_data:/app/data alpine tar -czf - -C /app/data ." > ./data/backup/data_volume_backup.tar.gz
+  ```
 
-### RESTORE
+### Restore
 
-- Linux/macOS
+- **Linux / macOS:**
+  ```bash
+  cat ./data/backup/data_volume_backup.tar.gz | ssh user@remote "docker run --rm -i -v t-mon_snd_monitor_data:/app/data alpine tar -xzf - -C /app/data"
+  ```
 
-```bash
-cat ./data/backup/data_volume_backup.tar.gz | ssh user@remote "docker run --rm -i -v t-mon_snd_monitor_data:/app/data alpine tar -xzf - -C /app/data"
-```
+- **Windows CMD (Docker Compose):**
+  ```cmd
+  type .\data\backup\data_volume_backup.tar.gz | docker compose run --rm snd-monitor tar -xzf - -C /app/data
+  ```
 
-- Windows cmd
+- **Windows PowerShell (Docker Compose):**
+  ```powershell
+  Get-Content ./data/backup/data_volume_backup.tar.gz -AsByteStream | docker compose run --rm snd-monitor tar -xzf - -C /app/data
+  ```
 
-    - DOCKER COMPOSE
-
-    ```bash
-    type .\data\backup\data_volume_backup.tar.gz | docker compose run --rm  snd-monitor tar -xzf - -C /app/data
-    ```
-
-- Windows PowerShell
-
-- DOCKER COMPOSE
-
-   ```bash
-   Get-Content ./data/backup/data_volume_backup.tar.gz -AsByteStream | docker compose run --rm  snd-monitor  tar -xzf - -C /app/data
-   ```
-
-- DOCKER IMAGE alpine
-
-   ```bash
-   Get-Content ./data/backup/data_volume_backup.tar.gz -AsByteStream | docker run --rm -i -v t-mon_snd_monitor_data:/app/data alpine tar -xzf - -C /app/data
-   ```
+- **Windows PowerShell (Alpine Image):**
+  ```powershell
+  Get-Content ./data/backup/data_volume_backup.tar.gz -AsByteStream | docker run --rm -i -v t-mon_snd_monitor_data:/app/data alpine tar -xzf - -C /app/data
+  ```
